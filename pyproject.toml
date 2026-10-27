@@ -1,0 +1,38 @@
+[project]
+name = "clinical-trial-rag-copilot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "D-Zineb", email = "zineb7.dahmani7@email.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "chromadb>=1.5.9",
+    "langchain>=1.4.7",
+    "langchain-anthropic>=1.7.6",
+    "langchain-community>=0.4.2",
+    "langchain-core>=1.7.0",
+    "langchain-openai>=1.7.3",
+    "langgraph>=1.2.18",
+    "langsmith>=0.14.13",
+    "matplotlib>=3.11.2",
+    "neo4j>=6.4.1",
+    "numpy>=2.4.6",
+    "pandas>=3.1.0",
+    "plotly>=7.1.0",
+    "pydantic>=2.14.1",
+    "pypdf>=6.21.2",
+    "python-dotenv>=1.2.4",
+    "rank-bm25>=0.2.2",
+    "seaborn>=0.13.2",
+    "tqdm>=4.70.1",
+]
+
+[project.scripts]
+clinical-trial-rag-copilot = "clinical_trial_rag_copilot:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
