@@ -25,6 +25,13 @@ class Outcome(BaseModel):
     time_frame: Optional[str] = None
 
 
+class ArmGroup(BaseModel):
+    label: str = ""
+    type: Optional[str] = None
+    description: Optional[str] = None
+    intervention_names: List[str] = Field(default_factory=list)
+
+
 class ClinicalTrial(BaseModel):
     nct_id: str
     brief_title: str
@@ -33,6 +40,7 @@ class ClinicalTrial(BaseModel):
     interventions: List[Intervention] = Field(default_factory=list)
     intervention_names: List[str] = Field(default_factory=list)
     intervention_types: List[str] = Field(default_factory=list)
+    arm_groups: List[ArmGroup] = Field(default_factory=list)
     phases: List[str] = Field(default_factory=list)
     study_type: Optional[str] = None
     brief_summary: Optional[str] = None
@@ -40,6 +48,13 @@ class ClinicalTrial(BaseModel):
     eligibility_criteria: Optional[str] = None
     inclusion_criteria: Optional[str] = None
     exclusion_criteria: Optional[str] = None
+    sex: Optional[str] = None
+    healthy_volunteers: Optional[bool] = None
+    minimum_age: Optional[str] = None
+    maximum_age: Optional[str] = None
+    min_age_years: Optional[float] = None
+    max_age_years: Optional[float] = None
+    std_ages: List[str] = Field(default_factory=list)
     primary_outcomes: List[Outcome] = Field(default_factory=list)
     primary_outcome_measures: List[str] = Field(default_factory=list)
     primary_outcome_timeframes: List[str] = Field(default_factory=list)
@@ -47,6 +62,29 @@ class ClinicalTrial(BaseModel):
     overall_status: Optional[str] = None
     why_stopped: Optional[str] = None
     last_update_date: Optional[str] = None
+
+
+def parse_age_to_years(age_str: Optional[str]) -> Optional[float]:
+    """Parse age string (e.g., '18 Years', '6 Months', '2 Weeks') into float years."""
+    if not age_str:
+        return None
+    import re
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)", age_str.strip())
+    if not m:
+        return None
+    val = float(m.group(1))
+    unit = m.group(2).lower()
+    if "year" in unit:
+        return round(val, 2)
+    elif "month" in unit:
+        return round(val / 12.0, 2)
+    elif "week" in unit:
+        return round(val / 52.0, 2)
+    elif "day" in unit:
+        return round(val / 365.25, 2)
+    elif "hour" in unit:
+        return round(val / (365.25 * 24), 2)
+    return round(val, 2)
 
 
 def split_eligibility_criteria(text: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -104,8 +142,19 @@ def parse_study(study_data: Dict[str, Any]) -> Optional[ClinicalTrial]:
     conditions_module = protocol.get("conditionsModule", {})
     conditions = conditions_module.get("conditions", [])
 
-    # Interventions
+    # Interventions & Arm Groups
     arms_module = protocol.get("armsInterventionsModule", {})
+    raw_arm_groups = arms_module.get("armGroups", [])
+    arm_groups = [
+        ArmGroup(
+            label=arm.get("label", "").strip(),
+            type=arm.get("type", "").strip() if arm.get("type") else None,
+            description=arm.get("description"),
+            intervention_names=[i.strip() for i in arm.get("interventionNames", []) if i],
+        )
+        for arm in raw_arm_groups
+    ]
+
     raw_interventions = arms_module.get("interventions", [])
     interventions = [
         Intervention(
@@ -123,10 +172,17 @@ def parse_study(study_data: Dict[str, Any]) -> Optional[ClinicalTrial]:
     phases = design_module.get("phases", [])
     study_type = design_module.get("studyType")
 
-    # Eligibility
+    # Eligibility & Demographics
     eligibility_module = protocol.get("eligibilityModule", {})
     eligibility_criteria = eligibility_module.get("eligibilityCriteria")
     inclusion_criteria, exclusion_criteria = split_eligibility_criteria(eligibility_criteria)
+    sex = eligibility_module.get("sex")
+    healthy_volunteers = eligibility_module.get("healthyVolunteers")
+    minimum_age = eligibility_module.get("minimumAge")
+    maximum_age = eligibility_module.get("maximumAge")
+    min_age_years = parse_age_to_years(minimum_age)
+    max_age_years = parse_age_to_years(maximum_age)
+    std_ages = eligibility_module.get("stdAges", [])
 
     # Outcomes
     outcomes_module = protocol.get("outcomesModule", {})
@@ -160,6 +216,7 @@ def parse_study(study_data: Dict[str, Any]) -> Optional[ClinicalTrial]:
         interventions=interventions,
         intervention_names=intervention_names,
         intervention_types=intervention_types,
+        arm_groups=arm_groups,
         phases=phases,
         study_type=study_type,
         brief_summary=brief_summary,
@@ -167,6 +224,13 @@ def parse_study(study_data: Dict[str, Any]) -> Optional[ClinicalTrial]:
         eligibility_criteria=eligibility_criteria,
         inclusion_criteria=inclusion_criteria,
         exclusion_criteria=exclusion_criteria,
+        sex=sex,
+        healthy_volunteers=healthy_volunteers,
+        minimum_age=minimum_age,
+        maximum_age=maximum_age,
+        min_age_years=min_age_years,
+        max_age_years=max_age_years,
+        std_ages=std_ages,
         primary_outcomes=primary_outcomes,
         primary_outcome_measures=primary_outcome_measures,
         primary_outcome_timeframes=primary_outcome_timeframes,
@@ -179,11 +243,17 @@ def parse_study(study_data: Dict[str, Any]) -> Optional[ClinicalTrial]:
 
 def fetch_cardiology_trials(
     condition: str = "Arrhythmia OR \"Atrial Fibrillation\" OR \"Heart Failure\"",
-    target_count: int = 300,
+    target_count: int = 1000,
     page_size: int = 100,
+    min_date: Optional[str] = "2024-06-01",
 ) -> List[ClinicalTrial]:
-    """Fetch clinical trials with pagination from ClinicalTrials.gov v2 API."""
-    print(f"Fetching trials for condition: {condition} (Target: {target_count})...")
+    """Fetch clinical trials with pagination from ClinicalTrials.gov v2 API.
+    
+    If min_date is provided (default: 2024-06-01), fetches only trials updated after that date
+    to guarantee zero LLM pre-training data contamination.
+    """
+    date_msg = f" (Updated >= {min_date})" if min_date else ""
+    print(f"Fetching trials for condition: {condition}{date_msg} (Target: {target_count})...")
     trials: List[ClinicalTrial] = []
     next_page_token: Optional[str] = None
 
@@ -194,6 +264,8 @@ def fetch_cardiology_trials(
             "format": "json",
             "countTotal": "true",
         }
+        if min_date:
+            params["filter.advanced"] = f"AREA[LastUpdatePostDate]RANGE[{min_date},MAX]"
         if next_page_token:
             params["pageToken"] = next_page_token
 
@@ -223,14 +295,3 @@ def fetch_cardiology_trials(
         time.sleep(0.5)  # Respect API rate limits
 
     return trials
-
-
-if __name__ == "__main__":
-    trials = fetch_cardiology_trials(target_count=300)
-    output_file = DATA_DIR / "cardiology_trials.json"
-
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump([t.model_dump() for t in trials], f, indent=2, ensure_ascii=False)
-
-    print(f"\n[DONE] Successfully saved {len(trials)} structured trials to:")
-    print(f"       {output_file}")

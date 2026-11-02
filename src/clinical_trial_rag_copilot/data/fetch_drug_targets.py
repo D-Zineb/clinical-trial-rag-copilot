@@ -71,12 +71,19 @@ def fetch_drug_targets(drugs: List[str], max_drugs: int = 50) -> List[Dict[str, 
 
             for bio in bioactivity:
                 target_name = bio.get("target_name")
-                gene_symbol = bio.get("gene_symbol")
+                # gene_symbol is nested inside uniprot dict: bio['uniprot']['gene_symbol']
+                uniprot = bio.get("uniprot") or {}
+                if isinstance(uniprot, list) and len(uniprot) > 0:
+                    uniprot = uniprot[0]
+                gene_symbol = uniprot.get("gene_symbol") if isinstance(uniprot, dict) else bio.get("gene_symbol")
+                target_class = bio.get("target_class")
                 action_type = bio.get("action_type") or "target"
+
                 if gene_symbol or target_name:
                     targets.append({
                         "gene_symbol": gene_symbol,
                         "target_name": target_name,
+                        "target_class": target_class,
                         "action_type": action_type,
                     })
 
