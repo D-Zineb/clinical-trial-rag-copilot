@@ -1,0 +1,39 @@
+name: Production CI Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  test:
+    name: Run Automated PyTest Suite & Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install uv (Fast Python Package Manager)
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Project Dependencies
+        run: |
+          uv sync
+
+      - name: Run PyTest Test Suite
+        env:
+          NEO4J_URI: ""
+          NEO4J_PASSWORD: ""
+          VECTOR_STORE_PROVIDER: "local"
+          EMBEDDING_PROVIDER: "local"
+        run: |
+          uv run pytest -v --durations=10

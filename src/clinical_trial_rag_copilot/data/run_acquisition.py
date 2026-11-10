@@ -13,7 +13,11 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 def clean_drug_name(raw_name: str) -> str:
     """Clean dosage, formulation, and commercial suffixes from drug names."""
-    name = re.sub(r"(?i)\b(injection|tablet|capsule|oral|infusion|solution|hydrochloride|acetate)\b", "", raw_name)
+    name = re.sub(
+        r"(?i)\b(injection|tablet|capsule|oral|infusion|solution|hydrochloride|succinate|tartrate|fumarate|maleate|mesylate|phosphate|sulfate|acetate)\b",
+        "",
+        raw_name,
+    )
     name = re.sub(r"\d+(\.\d+)?\s*(mg|mcg|ml|g)\b", "", name, flags=re.I)
     name = name.split("(")[0].split(",")[0].strip()
     return name.title()

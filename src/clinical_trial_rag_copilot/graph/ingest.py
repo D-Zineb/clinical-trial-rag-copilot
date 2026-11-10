@@ -17,8 +17,11 @@ def clean_drug_name(raw_name: str) -> str:
     """Clean dosage, formulation, and commercial prefixes/suffixes from drug names."""
     if not raw_name:
         return ""
-    name = re.sub(r"^(drug|biological|dietary supplement):\s*", "", raw_name.strip(), flags=re.I)
-    name = re.sub(r"(?i)\b(injection|tablet|capsule|oral|infusion|solution|hydrochloride|acetate)\b", "", name)
+    name = re.sub(
+        r"(?i)\b(injection|tablet|capsule|oral|infusion|solution|hydrochloride|succinate|tartrate|fumarate|maleate|mesylate|phosphate|sulfate|acetate)\b",
+        "",
+        name,
+    )
     name = re.sub(r"\d+(\.\d+)?\s*(mg|mcg|ml|g)\b", "", name, flags=re.I)
     name = name.split("(")[0].split(",")[0].strip()
     return name.title()

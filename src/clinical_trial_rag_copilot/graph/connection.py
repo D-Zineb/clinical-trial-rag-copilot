@@ -1,16 +1,20 @@
 import os
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from neo4j import GraphDatabase, Driver
+from neo4j.exceptions import ServiceUnavailable, AuthError
 
-# Load .env variables
+from clinical_trial_rag_copilot.utils.logger import get_logger
+
 load_dotenv()
+logger = get_logger("graph.connection")
 
 
 class Neo4jConnection:
-    """Singleton Neo4j database driver connection manager."""
+    """Singleton Neo4j database driver connection manager with production resilience."""
     _instance: Optional["Neo4jConnection"] = None
     _driver: Optional[Driver] = None
+    _is_connected: bool = False
 
     def __new__(cls):
         if cls._instance is None:
@@ -24,21 +28,34 @@ class Neo4jConnection:
         password = os.getenv("NEO4J_PASSWORD")
 
         if not uri or not password:
-            raise ValueError(
-                "Missing Neo4j credentials! Please ensure NEO4J_URI and "
-                "NEO4J_PASSWORD are set in your .env file."
+            logger.warning("Missing NEO4J_URI or NEO4J_PASSWORD in .env. Graph features will be offline.")
+            self._is_connected = False
+            return
+
+        try:
+            self._driver = GraphDatabase.driver(
+                uri,
+                auth=(username, password),
+                connection_timeout=5.0,
+                max_connection_lifetime=3600,
+            )
+            self._driver.verify_connectivity()
+            self._is_connected = True
+            logger.info("Connected to Neo4j AuraDB at: %s", uri)
+        except Exception as e:
+            self._is_connected = False
+            logger.warning(
+                "Could not connect to Neo4j AuraDB (%s): %s. System will operate in resilient fallback mode.",
+                uri,
+                e,
             )
 
-        # Initialize the official Neo4j driver
-        self._driver = GraphDatabase.driver(uri, auth=(username, password))
-        # Verify connection immediately
-        self._driver.verify_connectivity()
-        print(f"[SUCCESS] Connected to Neo4j AuraDB at: {uri}")
+    @property
+    def is_connected(self) -> bool:
+        return self._is_connected and self._driver is not None
 
     @property
-    def driver(self) -> Driver:
-        if self._driver is None:
-            self._init_driver()
+    def driver(self) -> Optional[Driver]:
         return self._driver
 
     def close(self):
@@ -46,13 +63,20 @@ class Neo4jConnection:
         if self._driver is not None:
             self._driver.close()
             self._driver = None
+            self._is_connected = False
             print("Neo4j connection closed.")
 
-    def execute_query(self, query: str, parameters: Optional[dict] = None):
-        """Execute a Cypher query with optional parameters and return list of records."""
-        with self.driver.session() as session:
-            result = session.run(query, parameters or {})
-            return [record.data() for record in result]
+    def execute_query(self, query: str, parameters: Optional[dict] = None) -> List[Dict[str, Any]]:
+        """Execute a Cypher query safely. Returns empty list if database is unreachable."""
+        if not self.is_connected or self._driver is None:
+            return []
+        try:
+            with self._driver.session() as session:
+                result = session.run(query, parameters or {})
+                return [record.data() for record in result]
+        except Exception as e:
+            print(f"[Neo4j Query Error] {e}")
+            return []
 
 
 def get_db() -> Neo4jConnection:

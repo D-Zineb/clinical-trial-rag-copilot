@@ -3,7 +3,10 @@ from typing import Any, Dict, List, Optional, Set
 from pydantic import BaseModel, Field
 
 from clinical_trial_rag_copilot.graph.connection import get_db
-from clinical_trial_rag_copilot.retrieval.vector_store import LocalVectorStore, SearchResult
+from clinical_trial_rag_copilot.retrieval.vector_store import LocalVectorStore, PineconeVectorStore, get_vector_store, SearchResult
+from clinical_trial_rag_copilot.utils.logger import get_logger
+
+logger = get_logger("retrieval.hybrid_search")
 
 
 class QueryEntities(BaseModel):
@@ -71,7 +74,7 @@ class ClinicalEntityExtractor:
                 res_aes = session.run("MATCH (a:AdverseEvent) RETURN a.name AS name")
                 self.known_aes = {r["name"] for r in res_aes if r["name"]}
         except Exception as e:
-            print(f"[EntityExtractor] Warning: Could not query Neo4j for vocabulary: {e}")
+            logger.warning("Could not query Neo4j for vocabulary: %s — using static fallback.", e)
             self.known_genes = {"KCNH2", "HERG", "SCN5A", "CACNA1C", "ADRB1", "NR3C2"}
             self.known_conditions = {"Atrial Fibrillation", "Heart Failure", "Arrhythmia", "Long QT Syndrome"}
             self.known_drugs = {"Amiodarone", "Metoprolol", "Flecainide", "Sotalol", "Spironolactone", "Vericiguat"}
@@ -140,9 +143,9 @@ class ClinicalEntityExtractor:
 class HybridRetriever:
     """Dual-retriever fusing Neo4j Knowledge Graph relations and Vector Store semantics."""
 
-    def __init__(self, vector_store: Optional[LocalVectorStore] = None):
+    def __init__(self, vector_store: Optional[LocalVectorStore | PineconeVectorStore] = None):
         self.db = get_db()
-        self.vector_store = vector_store or LocalVectorStore()
+        self.vector_store = vector_store or get_vector_store()
         self.extractor = ClinicalEntityExtractor()
 
     def query_graph(self, entities: QueryEntities, limit: int = 15) -> List[Dict[str, Any]]:
@@ -238,7 +241,7 @@ class HybridRetriever:
                             "genes": record["studied_genes"],
                         })
         except Exception as e:
-            print(f"[Graph Query Warning] Graph query failed ({e}); falling back to vector evidence.")
+            logger.warning("Graph query failed (%s); falling back to vector evidence.", e)
 
         return graph_results
 
@@ -306,21 +309,22 @@ if __name__ == "__main__":
     retriever = HybridRetriever()
 
     test_q = "What clinical trials test Amiodarone targeting KCNH2 in patients with Atrial Fibrillation?"
-    print(f"\n[Test Hybrid Retrieval] Query: {test_q}")
+    logger.info("Test hybrid retrieval query: %s", test_q)
     evidence = retriever.retrieve(test_q, top_k=5)
 
-    print("\nExtracted Entities:")
-    print(f"  Genes: {evidence.extracted_entities.genes}")
-    print(f"  Drugs: {evidence.extracted_entities.drugs}")
-    print(f"  Conditions: {evidence.extracted_entities.conditions}")
+    logger.info("Extracted entities — Genes: %s | Drugs: %s | Conditions: %s",
+                evidence.extracted_entities.genes,
+                evidence.extracted_entities.drugs,
+                evidence.extracted_entities.conditions)
 
-    print(f"\nGraph Evidence Items ({len(evidence.graph_evidence)}):")
+    logger.info("Graph evidence items: %d", len(evidence.graph_evidence))
     for g in evidence.graph_evidence[:3]:
-        print(f"  - [{g.get('source')}] Doc: {g.get('nct_id') or g.get('pmid')} | Title: {g.get('title')[:60]}...")
+        logger.info("  [%s] Doc: %s | Title: %s...",
+                    g.get("source"), g.get("nct_id") or g.get("pmid"), str(g.get("title", ""))[:60])
 
-    print(f"\nVector Evidence Items ({len(evidence.vector_evidence)}):")
+    logger.info("Vector evidence items: %d", len(evidence.vector_evidence))
     for v in evidence.vector_evidence[:3]:
-        print(f"  - [{v.chunk_type}] Score: {v.score:.4f} | Doc: {v.doc_id}")
+        logger.info("  [%s] Score=%.4f | Doc=%s", v.chunk_type, v.score, v.doc_id)
 
-    print(f"\nFused Ranked NCTs (RRF): {evidence.fused_ncts}")
-    print(f"Fused PMIDs: {evidence.fused_pmids}")
+    logger.info("Fused ranked NCTs (RRF): %s", evidence.fused_ncts)
+    logger.info("Fused PMIDs: %s", evidence.fused_pmids)

@@ -20,3 +20,6 @@ Thumbs.db
 *.html
 *.log
 *.json
+*.npy
+*.pkl
+docs/

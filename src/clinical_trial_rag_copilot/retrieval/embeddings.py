@@ -1,8 +1,11 @@
 import os
 from typing import List, Optional
 from dotenv import load_dotenv
+from clinical_trial_rag_copilot.utils.logger import get_logger
 
 load_dotenv()
+
+logger = get_logger("retrieval.embeddings")
 
 
 class BaseEmbeddingProvider:
@@ -83,6 +86,23 @@ class LocalTfIdfEmbeddingProvider(BaseEmbeddingProvider):
         return matrix.toarray().tolist()[0]
 
 
+
+class FastEmbedEmbeddingProvider(BaseEmbeddingProvider):
+    """Fixed pretrained model shared by ingestion and query processes."""
+
+    def __init__(self):
+        model_name = os.getenv("FASTEMBED_MODEL", "BAAI/bge-small-en-v1.5")
+        logger.info("Loading FastEmbed model %s (first use may download model files)...", model_name)
+        from fastembed import TextEmbedding
+        self.model = TextEmbedding(model_name=model_name)
+        logger.info("FastEmbed model ready.")
+
+    def embed_documents(self, texts):
+        return [v.tolist() for v in self.model.passage_embed(texts)]
+
+    def embed_query(self, text):
+        return next(iter(self.model.query_embed(text))).tolist()
+
 def get_embedding_provider() -> BaseEmbeddingProvider:
     """Factory function to instantiate the active embedding provider.
     
@@ -91,14 +111,18 @@ def get_embedding_provider() -> BaseEmbeddingProvider:
     2. If EMBEDDING_PROVIDER=google and GOOGLE_API_KEY is present -> Google Gemini (Free)
     3. Default -> Pure local scikit-learn provider (100% offline & free)
     """
-    provider_name = os.getenv("EMBEDDING_PROVIDER", "local").lower().strip()
+    provider_name = os.getenv("EMBEDDING_PROVIDER", "local" if os.getenv("VECTOR_STORE_PROVIDER") == "local" else "fastembed").lower().strip()
 
+    if provider_name == "fastembed":
+        return FastEmbedEmbeddingProvider()
+    if provider_name != "local" and not (provider_name == "openai" and os.getenv("OPENAI_API_KEY")) and not (provider_name in ["google", "gemini"] and os.getenv("GOOGLE_API_KEY")):
+        raise ValueError("Unknown embedding provider or missing embedding API credentials.")
     if provider_name == "openai" and os.getenv("OPENAI_API_KEY"):
-        print("[Embedding] Using OpenAI cloud embeddings (text-embedding-3-small)")
+        logger.info("Using OpenAI cloud embeddings (text-embedding-3-small)")
         return OpenAIEmbeddingProvider()
     elif provider_name in ["google", "gemini"] and os.getenv("GOOGLE_API_KEY"):
-        print("[Embedding] Using Google Gemini embeddings (text-embedding-004)")
+        logger.info("Using Google Gemini embeddings (text-embedding-004)")
         return GoogleGeminiEmbeddingProvider()
     else:
-        print("[Embedding] Using local & free pure-Python embedding engine (scikit-learn TF-IDF)")
+        logger.info("Using local pure-Python embedding engine (scikit-learn TF-IDF)")
         return LocalTfIdfEmbeddingProvider()
