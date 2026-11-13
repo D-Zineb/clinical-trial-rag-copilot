@@ -1,3 +1,4 @@
+from clinical_trial_rag_copilot.data.storage import load_dataset
 import json
 import os
 import pickle
@@ -335,16 +336,8 @@ def get_vector_store():
 def index_all_data():
     """Build and persist the complete vector index from trials and literature datasets."""
     logger.info("Starting vector ingestion; loading source datasets from %s", DATA_DIR)
-    trials_file = DATA_DIR / "cardiology_trials.json"
-    pubmed_file = DATA_DIR / "pubmed_cardiology_literature.json"
-
-    if not trials_file.exists() or not pubmed_file.exists():
-        raise FileNotFoundError("Missing data files. Run run_acquisition.py first.")
-
-    with open(trials_file, "r", encoding="utf-8") as f:
-        trials = json.load(f)
-    with open(pubmed_file, "r", encoding="utf-8") as f:
-        papers = json.load(f)
+    trials = load_dataset("cardiology_trials.json")
+    papers = load_dataset("pubmed_cardiology_literature.json")
 
     chunks = build_all_chunks(trials, papers)
     logger.info("Prepared %d chunks from %d trials and %d papers.", len(chunks), len(trials), len(papers))

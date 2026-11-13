@@ -1,3 +1,4 @@
+from clinical_trial_rag_copilot.data.storage import load_dataset
 import json
 import re
 from pathlib import Path
@@ -29,13 +30,7 @@ def clean_drug_name(raw_name: str) -> str:
 
 def ingest_trials(batch_size: int = 250):
     """Batch ingest clinical trials, conditions, sponsors, arm groups, and drug links into Neo4j."""
-    trials_file = DATA_DIR / "cardiology_trials.json"
-    if not trials_file.exists():
-        print(f"Error: {trials_file} not found. Run run_acquisition.py first.")
-        return
-
-    with open(trials_file, "r", encoding="utf-8") as f:
-        trials = json.load(f)
+    trials = load_dataset("cardiology_trials.json")
 
     db = get_db()
     print(f"\n[1/3] Ingesting {len(trials)} Clinical Trials into Neo4j...")
@@ -154,13 +149,7 @@ def ingest_trials(batch_size: int = 250):
 
 def ingest_drug_targets(batch_size: int = 100):
     """Ingest pharmacology target genes and mechanisms of action."""
-    targets_file = DATA_DIR / "drug_targets_pharmacology.json"
-    if not targets_file.exists():
-        print(f"Error: {targets_file} not found.")
-        return
-
-    with open(targets_file, "r", encoding="utf-8") as f:
-        targets_data = json.load(f)
+    targets_data = load_dataset("drug_targets_pharmacology.json")
 
     db = get_db()
     print(f"\n[2/3] Ingesting Drug Targets for {len(targets_data)} Drugs...")
@@ -199,13 +188,7 @@ def ingest_drug_targets(batch_size: int = 100):
 
 def ingest_pubmed_literature(batch_size: int = 200):
     """Ingest PubMed papers, linking them to adverse events, drugs, and target genes."""
-    pubmed_file = DATA_DIR / "pubmed_cardiology_literature.json"
-    if not pubmed_file.exists():
-        print(f"Error: {pubmed_file} not found.")
-        return
-
-    with open(pubmed_file, "r", encoding="utf-8") as f:
-        papers = json.load(f)
+    papers = load_dataset("pubmed_cardiology_literature.json")
 
     db = get_db()
     print(f"\n[3/3] Ingesting {len(papers)} PubMed Papers and Safety Links...")

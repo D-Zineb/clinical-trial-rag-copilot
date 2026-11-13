@@ -9,3 +9,6 @@ os.environ["VECTOR_STORE_PROVIDER"] = "local"
 os.environ["EMBEDDING_PROVIDER"] = "local"
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 os.environ["LANGSMITH_TRACING"] = "false"
+
+# Offline tests must not read developer S3 datasets.
+os.environ["RAG_DATA_S3_URI"] = ""

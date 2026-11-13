@@ -1,4 +1,5 @@
 """Prepare five source-backed examples and inspect raw/expanded retrieval contexts."""
+from clinical_trial_rag_copilot.data.storage import load_dataset
 import json
 from pathlib import Path
 
@@ -31,8 +32,8 @@ CASES = [
 
 
 def main():
-    trials = json.loads((DATA_DIR / "cardiology_trials.json").read_text(encoding="utf-8"))
-    papers = json.loads((DATA_DIR / "pubmed_cardiology_literature.json").read_text(encoding="utf-8"))
+    trials = load_dataset("cardiology_trials.json")
+    papers = load_dataset("pubmed_cardiology_literature.json")
     chunks = {c.chunk_id: c for c in build_all_chunks(trials, papers)}
     out = Path("eval/context_pilot")
     out.mkdir(parents=True, exist_ok=True)

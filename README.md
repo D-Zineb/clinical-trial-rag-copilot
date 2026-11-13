@@ -218,3 +218,56 @@ and `EMBEDDING_PROVIDER=local`. Pinecone tests use mocked clients, with no cloud
 
 References: [Pinecone vector APIs](https://docs.pinecone.io/reference/api/2025-04/data-plane/list),
 [FastEmbed](https://qdrant.github.io/fastembed/Getting%20Started/).
+
+
+## Source datasets on Amazon S3
+
+Source JSON can stay in a private S3 bucket. Pinecone and Neo4j remain the query
+indexes; this does not rebuild them, migrate them to S3, or schedule refreshes.
+
+1. Create a general-purpose S3 bucket in your EC2 region, keeping Block Public
+   Access enabled. Upload the following files into a prefix such as `datasets/current/`:
+   `cardiology_trials.json`, `pubmed_cardiology_literature.json`, and
+   `drug_targets_pharmacology.json`. Use the S3 console Upload button from the
+   computer containing those files. Never upload `.env` or SSH keys.
+2. Create an IAM role trusted by EC2 with the following read-only policy (replace
+   `YOUR_BUCKET`). Attach it using EC2 > Actions > Security > Modify IAM role.
+   No AWS access keys are needed in the application.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::YOUR_BUCKET/datasets/current/*"
+  }]
+}
+```
+
+3. Install AWS CLI v2 on EC2 using the official instructions:
+   https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+   Check `aws --version`.
+4. Add to your remote `.env`:
+
+```dotenv
+RAG_DATA_S3_URI=s3://YOUR_BUCKET/datasets/current
+AWS_DEFAULT_REGION=eu-west-3
+```
+
+5. Verify reading without modifying either retrieval index:
+
+```bash
+uv run python -c 'from clinical_trial_rag_copilot.data.storage import load_dataset; print({name: len(load_dataset(name)) for name in ("cardiology_trials.json", "pubmed_cardiology_literature.json", "drug_targets_pharmacology.json")})'
+```
+
+Vector ingestion, graph ingestion, and retrieval evaluation use the shared loader.
+Each call reads the selected object into memory using AWS CLI; source datasets
+are not cached on disk. Missing credentials, inaccessible objects, invalid JSON,
+and non-array datasets fail explicitly, without local fallback. Local vector
+indexes, model caches, and generated reports still use disk space.
+
+Without `RAG_DATA_S3_URI`, the existing local `data/output` source directory is
+used. Set `RAG_DATA_DIR` to override that source directory. Existing acquisition
+scripts still write locally; weekly refreshes and automatic uploads are deferred.
+Do not rerun ingestion just to test S3 access: it writes to Pinecone or Neo4j.

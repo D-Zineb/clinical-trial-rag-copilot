@@ -1,4 +1,5 @@
 """Read-only known-item retrieval evaluation; no answer-generation calls."""
+from clinical_trial_rag_copilot.data.storage import load_dataset
 import argparse
 import hashlib
 import json
@@ -45,8 +46,8 @@ def main(argv=None):
         parser.error("Each case must specify trial or paper kind")
     if args.candidate_k < 10:
         parser.error("candidate-k must be at least 10")
-    trials = json.loads((DATA_DIR / "cardiology_trials.json").read_text(encoding="utf-8"))
-    papers = json.loads((DATA_DIR / "pubmed_cardiology_literature.json").read_text(encoding="utf-8"))
+    trials = load_dataset("cardiology_trials.json")
+    papers = load_dataset("pubmed_cardiology_literature.json")
     chunks = build_all_chunks(trials, papers)
     corpus_ids = {c.doc_id for c in chunks}
     if any(c["target_id"] not in corpus_ids for c in cases):
