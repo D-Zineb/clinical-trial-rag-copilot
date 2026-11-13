@@ -22,5 +22,9 @@ Thumbs.db
 *.json
 *.npy
 *.pkl
-eval/
+# Keep evaluation source and benchmark cases; ignore generated run artifacts.
+/eval/*
+!/eval/README.md
+!/eval/retrieval_cases.jsonl
+!/eval/retrieval_cases_v1_24.jsonl
 docs/
