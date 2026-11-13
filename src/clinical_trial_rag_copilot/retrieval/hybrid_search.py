@@ -280,14 +280,18 @@ class HybridRetriever:
 
         sorted_ncts = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
 
-        # Collect PMIDs from graph and vector
-        pmids: Set[str] = set()
-        for item in graph_items:
-            if item.get("pmid"):
-                pmids.add(item["pmid"])
-        for hit in vector_hits:
-            if hit.chunk_type == "LITERATURE_ABSTRACT" and hit.doc_id:
-                pmids.add(hit.doc_id)
+        # Fuse paper ranks, preserving each source's order rather than sorting IDs.
+        # Each paper gets at most one vote per source.
+        paper_scores: Dict[str, float] = {}
+        paper_lists = [
+            [str(item["pmid"]) for item in graph_items if item.get("pmid")],
+            [hit.doc_id for hit in vector_hits
+             if hit.chunk_type == "LITERATURE_ABSTRACT" and hit.doc_id],
+        ]
+        for paper_list in paper_lists:
+            for rank, pmid in enumerate(dict.fromkeys(paper_list), start=1):
+                paper_scores[pmid] = paper_scores.get(pmid, 0.0) + 1.0 / (k_constant + rank)
+        sorted_pmids = sorted(paper_scores, key=paper_scores.get, reverse=True)
 
         # Sibling Chunk Expansion: Pull companion chunks (Overview, Inclusion, Exclusion) for top winning trials
         sibling_chunks: Dict[str, List[Dict[str, Any]]] = {}
@@ -300,7 +304,7 @@ class HybridRetriever:
             graph_evidence=graph_items,
             vector_evidence=vector_hits,
             fused_ncts=sorted_ncts[:top_k],
-            fused_pmids=sorted(list(pmids))[:top_k],
+            fused_pmids=sorted_pmids[:top_k],
             sibling_chunks=sibling_chunks,
         )
 

@@ -36,4 +36,11 @@ jobs:
           VECTOR_STORE_PROVIDER: "local"
           EMBEDDING_PROVIDER: "local"
         run: |
-          uv run pytest -v --durations=10
+          uv run pytest -v --durations=10 --junitxml=test-results/pytest.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: test-results/pytest.xml
