@@ -27,4 +27,5 @@ Thumbs.db
 !/eval/README.md
 !/eval/retrieval_cases.jsonl
 !/eval/retrieval_cases_v1_24.jsonl
+!/eval/graph_cases.jsonl
 docs/

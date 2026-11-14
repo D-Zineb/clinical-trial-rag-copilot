@@ -1,0 +1,9 @@
+{"id":"drug_trial","kind":"trial","query":"Which trials administer Amiodarone?","entities":{"drugs":["Amiodarone"]}}
+{"id":"gene_trial","kind":"trial","query":"Which trials administer drugs inhibiting KCNH2?","entities":{"genes":["KCNH2"]}}
+{"id":"drug_gene_trial","kind":"trial","query":"Which trials administer Amiodarone that inhibits KCNH2?","entities":{"drugs":["Amiodarone"],"genes":["KCNH2"]}}
+{"id":"condition_trial","kind":"trial","query":"Which trials target Atrial Fibrillation?","entities":{"conditions":["Atrial Fibrillation"]}}
+{"id":"drug_condition_trial","kind":"trial","query":"Which trials administer Amiodarone for Atrial Fibrillation?","entities":{"drugs":["Amiodarone"],"conditions":["Atrial Fibrillation"]}}
+{"id":"drug_paper","kind":"paper","query":"Which papers cite Amiodarone?","entities":{"drugs":["Amiodarone"]}}
+{"id":"gene_paper","kind":"paper","query":"Which papers study KCNH2?","entities":{"genes":["KCNH2"]}}
+{"id":"safety_paper","kind":"paper","query":"Which papers cite Amiodarone and report QT Prolongation?","entities":{"drugs":["Amiodarone"],"adverse_events":["QT Prolongation"]}}
+{"id":"absent_drug","kind":"trial","query":"Which trials administer EVAL_NONEXISTENT_DRUG_7F31?","entities":{"drugs":["EVAL_NONEXISTENT_DRUG_7F31"]}}

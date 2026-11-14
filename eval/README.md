@@ -1,5 +1,43 @@
 # Evaluation workflow
 
+## Graph-specific diagnostics
+
+```powershell
+uv run python -m clinical_trial_rag_copilot.eval.graph_evaluation
+```
+
+This read-only runner requires only Neo4j credentials, not S3 datasets, Pinecone,
+or embedding-model initialization. Nine starter questions cover drug, gene,
+combined drug/gene, condition, literature safety, and absent-entity behavior.
+These are diagnostic cases with manually specified entities, not clinically reviewed labels.
+
+Each question runs with verified entities and with production entity extraction.
+Independent unbounded Cypher queries define reference document sets on the current
+graph, using OR within each entity category and AND across categories. Drug/gene
+trial constraints must hold on the same administered drug. The report saves
+reference IDs, actual IDs, raw evidence, entity precision/recall/F1, document-set
+precision/recall/F1, exact-set match, constraint violations, latency, and execution
+errors. Exceptions are not scored as legitimate empty results. Empty expected sets
+use recall 1; empty retrieval precision is 1 only when the expected set is also empty.
+
+Results appear in `eval/graph_runs/<timestamp>/report.json`. Exit 0 means all result
+sets match; 1 means mismatches or per-query execution errors; 2 means setup/reference
+failure. Default production candidate limit is 100 here; the production paper branch
+still caps results at eight. Recall therefore includes truncation effects. No MRR or
+nDCG is reported because graph results have no relevance ordering.
+
+Use `--cases PATH` for a frozen, reviewed JSONL benchmark. Each case requires `id`,
+`kind` (`trial` or `paper`), `query`, and `entities`. Optional `expected_ids` must
+match the current reference set or the run fails for snapshot/label review. Save
+reports to retain the exact reference sets: cross-snapshot scores are not controlled
+regression comparisons. Case files cannot contain executable Cypher.
+
+Demographic semantics are deliberately unsupported and rejected. These diagnostics
+do not measure source-relative graph completeness, clinical relevance, or factual
+accuracy of relationships. Supporting-path correctness needs separately reviewed
+relationship labels; raw returned evidence is saved for that review. Do not infer
+clinical quality from agreement with the graph itself.
+
 Implementation lives in `src/clinical_trial_rag_copilot/eval/`. This directory holds
 versioned test questions, review annotations and locally generated run artifacts.
 

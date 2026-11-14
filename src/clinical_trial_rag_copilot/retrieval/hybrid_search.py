@@ -148,9 +148,11 @@ class HybridRetriever:
         self.vector_store = vector_store or get_vector_store()
         self.extractor = ClinicalEntityExtractor()
 
-    def query_graph(self, entities: QueryEntities, limit: int = 15) -> List[Dict[str, Any]]:
+    def query_graph(self, entities: QueryEntities, limit: int = 15, *, strict: bool = False) -> List[Dict[str, Any]]:
         """Execute deterministic multi-hop Cypher queries based on extracted entities."""
         if not self.db.is_connected or self.db.driver is None:
+            if strict:
+                raise RuntimeError("Graph database is unavailable")
             return []
 
         graph_results: List[Dict[str, Any]] = []
@@ -252,6 +254,8 @@ class HybridRetriever:
                             "genes": record["studied_genes"],
                         })
         except Exception as e:
+            if strict:
+                raise
             logger.warning("Graph query failed (%s); falling back to vector evidence.", e)
 
         return graph_results
