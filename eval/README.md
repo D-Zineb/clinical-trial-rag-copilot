@@ -102,3 +102,34 @@ were written from source titles before retrieval. These are known-item labels, n
 clinician-reviewed exhaustive relevance judgments. The source records remain a
 convenience sample rather than a random or representative clinical sample.
 Reports from the 24- and 52-query datasets are not strict compatible baselines.
+
+
+## Changing source datasets
+
+Keep the reviewed fixed benchmark for regression comparisons against its original
+corpus. Never silently drop missing targets or mark them as retrieval misses.
+For a new corpus, generate a separate diagnostic question set:
+
+```bash
+uv run python -m clinical_trial_rag_copilot.eval.prepare_cases --output eval/generated/snapshot-smoke.jsonl --per-kind 20
+uv run python -m clinical_trial_rag_copilot.eval.run --cases eval/generated/snapshot-smoke.jsonl --require-graph
+```
+
+Preparation loads the configured S3 or local datasets without querying or modifying
+indexes. It selects indexable documents in deterministic ID-hash order, emits
+exact-title controls with unique IDs, prints a canonical corpus fingerprint, and
+refuses to overwrite an existing case file. Use a new filename for each snapshot.
+These cases can check known-item retrieval after ingestion, but are intentionally
+easy and do not validate clinical relevance. The canonical preparation hash sorts
+chunks, whereas the existing run provenance hash preserves chunk order; the two
+hashes have different definitions and should not be compared directly.
+
+For semantic quality, retain stable user questions (e.g. trials comparing ablation
+with medication for atrial fibrillation), pool candidate documents from multiple
+retrievers on each snapshot, and review direct/partial/irrelevant labels with
+supporting passages. Explicitly distinguish no supporting corpus evidence from
+retrieval failure. Do not label top retrieval results as relevant automatically.
+That corpus-specific semantic review is not implemented by the smoke generator.
+Cross-corpus scores are not strict before/after comparisons; evaluate retrieval
+changes against the same frozen corpus and cases. Ingestion must be synchronized
+separately: generating valid cases does not prove either remote index is current.
