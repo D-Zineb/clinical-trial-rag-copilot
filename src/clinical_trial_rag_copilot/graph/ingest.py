@@ -21,7 +21,7 @@ def clean_drug_name(raw_name: str) -> str:
     name = re.sub(
         r"(?i)\b(injection|tablet|capsule|oral|infusion|solution|hydrochloride|succinate|tartrate|fumarate|maleate|mesylate|phosphate|sulfate|acetate)\b",
         "",
-        name,
+        raw_name,
     )
     name = re.sub(r"\d+(\.\d+)?\s*(mg|mcg|ml|g)\b", "", name, flags=re.I)
     name = name.split("(")[0].split(",")[0].strip()

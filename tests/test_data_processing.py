@@ -1,9 +1,11 @@
 import pytest
 from clinical_trial_rag_copilot.data.fetch_trials import parse_age_to_years, split_eligibility_criteria
 from clinical_trial_rag_copilot.data.run_acquisition import clean_drug_name
+from clinical_trial_rag_copilot.graph.ingest import clean_drug_name as clean_graph_drug_name
 
 
-def test_clean_drug_name():
+@pytest.mark.parametrize("clean_drug_name", [clean_drug_name, clean_graph_drug_name])
+def test_clean_drug_name(clean_drug_name):
     """Verify pharmaceutical drug name cleaning strips formulations, dosages, and noise."""
     assert clean_drug_name("Amiodarone Hydrochloride 200 mg") == "Amiodarone"
     assert clean_drug_name("Metoprolol Succinate Oral Tablet 50mg") == "Metoprolol"
@@ -52,3 +54,8 @@ def test_split_criteria_missing_exclusion():
     assert incl is not None
     assert "symptomatic heart failure" in incl
     assert excl is None
+
+
+def test_graph_drug_name_missing():
+    assert clean_graph_drug_name(None) == ""
+    assert clean_graph_drug_name("") == ""
