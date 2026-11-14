@@ -10,7 +10,6 @@ API_BASE_URL = "https://clinicaltrials.gov/api/v2/studies"
 
 # Ensure output directory exists
 DATA_DIR = Path(__file__).resolve().parent / "output"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class Intervention(BaseModel):

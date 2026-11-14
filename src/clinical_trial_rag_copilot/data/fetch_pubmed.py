@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 import requests
 
 DATA_DIR = Path(__file__).resolve().parent / "output"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_FILE = DATA_DIR / "pubmed_cardiology_literature.json"
 

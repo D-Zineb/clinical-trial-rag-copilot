@@ -1,14 +1,11 @@
-import json
 import re
-from pathlib import Path
 from typing import List
 
 from clinical_trial_rag_copilot.data.fetch_trials import fetch_cardiology_trials
 from clinical_trial_rag_copilot.data.fetch_drug_targets import fetch_drug_targets
 from clinical_trial_rag_copilot.data.fetch_pubmed import fetch_pubmed_abstracts
 
-DATA_DIR = Path(__file__).resolve().parent / "output"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+from clinical_trial_rag_copilot.data.storage import save_dataset
 
 
 def clean_drug_name(raw_name: str) -> str:
@@ -72,10 +69,8 @@ def run_full_pipeline(
     trials = fetch_cardiology_trials(target_count=trials_target, min_date=min_date_trials)
     trials_json = [t.model_dump() for t in trials]
 
-    trials_file = DATA_DIR / "cardiology_trials.json"
-    with open(trials_file, "w", encoding="utf-8") as f:
-        json.dump(trials_json, f, indent=2, ensure_ascii=False)
-    print(f"   [OK] Saved {len(trials_json)} trials to {trials_file.name}")
+    destination = save_dataset("cardiology_trials.json", trials_json)
+    print(f"   [OK] Saved {len(trials_json)} records to {destination}")
 
     # -------------------------------------------------------------
     # 2. Source 2: Pharmacology Targets (ChEMBL / DrugCentral)
@@ -84,10 +79,8 @@ def run_full_pipeline(
     top_drugs = extract_top_drugs_from_trials(trials_json, max_drugs=drugs_target)
     targets_data = fetch_drug_targets(drugs=top_drugs, max_drugs=drugs_target)
 
-    targets_file = DATA_DIR / "drug_targets_pharmacology.json"
-    with open(targets_file, "w", encoding="utf-8") as f:
-        json.dump(targets_data, f, indent=2, ensure_ascii=False)
-    print(f"   [OK] Saved target profiles for {len(targets_data)} drugs to {targets_file.name}")
+    destination = save_dataset("drug_targets_pharmacology.json", targets_data)
+    print(f"   [OK] Saved {len(targets_data)} records to {destination}")
 
     # -------------------------------------------------------------
     # 3. Source 3: PubMed Central Literature
@@ -95,13 +88,11 @@ def run_full_pipeline(
     print(f"\n[STEP 3/3] Fetching PubMed literature (Target: {pubmed_target})...")
     pubmed_articles = fetch_pubmed_abstracts(max_results=pubmed_target, min_date=min_date_pubmed)
 
-    pubmed_file = DATA_DIR / "pubmed_cardiology_literature.json"
-    with open(pubmed_file, "w", encoding="utf-8") as f:
-        json.dump(pubmed_articles, f, indent=2, ensure_ascii=False)
-    print(f"   [OK] Saved {len(pubmed_articles)} research papers to {pubmed_file.name}")
+    destination = save_dataset("pubmed_cardiology_literature.json", pubmed_articles)
+    print(f"   [OK] Saved {len(pubmed_articles)} records to {destination}")
 
     print("\n" + "=" * 60)
-    print("DATA ACQUISITION COMPLETE: ALL 3 SOURCES FRESH & SYNCHRONIZED")
+    print("DATA ACQUISITION COMPLETE: ALL 3 DATASETS SAVED")
     print("=" * 60)
 
 

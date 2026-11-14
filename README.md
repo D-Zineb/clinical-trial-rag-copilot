@@ -230,7 +230,7 @@ indexes; this does not rebuild them, migrate them to S3, or schedule refreshes.
    `cardiology_trials.json`, `pubmed_cardiology_literature.json`, and
    `drug_targets_pharmacology.json`. Use the S3 console Upload button from the
    computer containing those files. Never upload `.env` or SSH keys.
-2. Create an IAM role trusted by EC2 with the following read-only policy (replace
+2. Create an IAM role trusted by EC2 with the following read/write policy (replace
    `YOUR_BUCKET`). Attach it using EC2 > Actions > Security > Modify IAM role.
    No AWS access keys are needed in the application.
 
@@ -239,7 +239,7 @@ indexes; this does not rebuild them, migrate them to S3, or schedule refreshes.
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
-    "Action": "s3:GetObject",
+    "Action": ["s3:GetObject", "s3:PutObject"],
     "Resource": "arn:aws:s3:::YOUR_BUCKET/datasets/current/*"
   }]
 }
@@ -268,6 +268,27 @@ and non-array datasets fail explicitly, without local fallback. Local vector
 indexes, model caches, and generated reports still use disk space.
 
 Without `RAG_DATA_S3_URI`, the existing local `data/output` source directory is
-used. Set `RAG_DATA_DIR` to override that source directory. Existing acquisition
-scripts still write locally; weekly refreshes and automatic uploads are deferred.
+used. Set `RAG_DATA_DIR` to override that source directory. Acquisition uses the same storage setting and uploads JSON directly from memory
+to S3 when configured. Weekly refresh scheduling is deferred.
 Do not rerun ingestion just to test S3 access: it writes to Pinecone or Neo4j.
+
+### Fetch directly into S3
+
+With `RAG_DATA_S3_URI` configured and an EC2 role allowing `s3:PutObject` as well
+as `s3:GetObject` on the selected prefix, run:
+
+```bash
+uv run python -m clinical_trial_rag_copilot.data.run_acquisition
+```
+
+This fetches the three sources and uploads each processed JSON array directly
+from memory to S3. It does not first save a JSON file on EC2. Reads for ingestion
+and evaluation use those same object names. Without S3 configuration, acquisition
+retains local output behavior and honors `RAG_DATA_DIR`.
+
+The three uploads happen sequentially and overwrite existing objects at that
+prefix. This is not a transactional release or a backup pipeline; fetching may
+still return partial results under the existing source error handling. Use a new
+prefix for a fresh collection if you want to preserve your previous dataset.
+Fetching does not automatically update Pinecone or Neo4j. No live acquisition or
+S3 upload is performed by the automated tests.

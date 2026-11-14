@@ -1,10 +1,10 @@
+from clinical_trial_rag_copilot.data.storage import load_dataset
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Set
 import requests
 
 DATA_DIR = Path(__file__).resolve().parent / "output"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 TRIALS_FILE = DATA_DIR / "cardiology_trials.json"
 OUTPUT_FILE = DATA_DIR / "drug_targets_pharmacology.json"
@@ -15,12 +15,7 @@ MYCHEM_API_URL = "https://mychem.info/v1/query"
 
 def extract_unique_drugs_from_trials() -> List[str]:
     """Extract distinct drug names from our clinical trials dataset."""
-    if not TRIALS_FILE.exists():
-        print(f"Error: {TRIALS_FILE} not found. Run fetch_trials.py first.")
-        return []
-
-    with open(TRIALS_FILE, "r", encoding="utf-8") as f:
-        trials = json.load(f)
+    trials = load_dataset("cardiology_trials.json")
 
     drugs: Set[str] = set()
     for t in trials:
