@@ -210,12 +210,23 @@ class HybridRetriever:
                 # Query Path 3: Adverse Events & Literature Cross-Links
                 if entities.adverse_events or entities.genes or entities.drugs:
                     query_lit = """
-                    MATCH (p:Paper)-[:REPORTS_ADVERSE_EVENT]->(ae:AdverseEvent)
+                    MATCH (p:Paper)
+                    // Require each requested category before optional expansion.
+                    WHERE (size($aes) = 0 OR EXISTS {
+                        MATCH (p)-[:REPORTS_ADVERSE_EVENT]->(matched_ae:AdverseEvent)
+                        WHERE matched_ae.name IN $aes
+                    })
+                      AND (size($drugs) = 0 OR EXISTS {
+                        MATCH (p)-[:CITES_DRUG]->(matched_drug:Drug)
+                        WHERE matched_drug.name IN $drugs
+                    })
+                      AND (size($genes) = 0 OR EXISTS {
+                        MATCH (p)-[:STUDIES_GENE]->(matched_gene:Gene)
+                        WHERE matched_gene.symbol IN $genes
+                    })
+                    OPTIONAL MATCH (p)-[:REPORTS_ADVERSE_EVENT]->(ae:AdverseEvent)
                     OPTIONAL MATCH (p)-[:CITES_DRUG]->(d:Drug)
                     OPTIONAL MATCH (p)-[:STUDIES_GENE]->(g:Gene)
-                    WHERE (size($aes) = 0 OR ae.name IN $aes)
-                      AND (size($drugs) = 0 OR d.name IN $drugs)
-                      AND (size($genes) = 0 OR g.symbol IN $genes)
                     RETURN p.pmid AS pmid, p.title AS title, p.year AS year,
                            collect(DISTINCT ae.name) AS adverse_events,
                            collect(DISTINCT d.name)[..4] AS cited_drugs,
