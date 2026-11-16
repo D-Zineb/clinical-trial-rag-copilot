@@ -33,9 +33,10 @@ def test_paper_predicates_filter_before_optional_expansion(entities):
         ("drugs", "CITES_DRUG", "Drug", "matched_drug", "name"),
         ("genes", "STUDIES_GENE", "Gene", "matched_gene", "symbol"),
     ]:
-        assert f"size(${parameter}) = 0 OR EXISTS" in predicates
-        assert f"MATCH (p)-[:{relation}]->({alias}:{label})" in predicates
-        assert f"WHERE {alias}.{prop} IN ${parameter}" in predicates
+        new_relation = {"REPORTS_ADVERSE_EVENT": "INDEXED_ADVERSE_EVENT", "CITES_DRUG": "MENTIONS_DRUG", "STUDIES_GENE": "MENTIONS_GENE"}[relation]
+        assert f"size(${parameter}) = 0 OR ALL(value IN ${parameter} WHERE EXISTS" in predicates
+        assert f"MATCH (p)-[:{new_relation}|{relation}]->({alias}:{label})" in predicates
+        assert f"WHERE {alias}.{prop} = value" in predicates
     assert params == {"aes": entities.adverse_events,
                       "drugs": entities.drugs, "genes": entities.genes, "limit": 15}
 

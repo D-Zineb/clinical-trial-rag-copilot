@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-PARSER_VERSION = "criteria-v1"
+PARSER_VERSION = "criteria-v2"
 
 
 class PatientProfile(BaseModel):
@@ -35,6 +35,8 @@ class CriterionEvidence(BaseModel):
     assessment: Literal["satisfied", "violated", "unknown"] = "unknown"
     explanation: str = "Clause needs structured extraction or reviewer assessment."
     patient_evidence: str | None = None
+    section_text: str = ""
+    logical_scope: str = "whole_section"
     source_url: str
 
 
@@ -70,7 +72,7 @@ class MatchResponse(BaseModel):
 def extract_criteria(trial: dict) -> list[CriterionEvidence]:
     """Keep source spans; do not split logical bullets or nested clauses.
 
-    V1 retains each whole section. This deliberately prevents accidental AND/OR
+    V2 splits only independent flat bullets and retains original sections. This deliberately prevents accidental AND/OR
     loss. Atomic splitting requires a reviewed parser; section text is evidence,
     not an automatically validated rule.
     """
@@ -83,14 +85,25 @@ def extract_criteria(trial: dict) -> list[CriterionEvidence]:
         text = trial.get(key) or ""
         if not isinstance(text, str) or not text.strip():
             continue
-        start = len(text) - len(text.lstrip())
-        end = len(text.rstrip())
-        result.append(CriterionEvidence(
-            criterion_id=f"{trial['nct_id']}:{key}:{digest[:16]}",
-            trial_id=trial["nct_id"], polarity=polarity, source_field=key,
-            source_hash=digest, start=start, end=end, text=text[start:end],
-            source_url=f"https://clinicaltrials.gov/study/{trial['nct_id']}",
-        ))
+        bullets = list(re.finditer(r"(?m)^( *)(?:[-*•]|\d+[.)])\s+", text))
+        # Split only a flat list with no introductory logic or cross-item OR.
+        safe = (len(bullets) > 1 and not text[:bullets[0].start()].strip()
+                and len({len(m.group(1)) for m in bullets}) == 1
+                and not re.search(r"\b(or|either|unless|except|following|any of)\b", text, re.I))
+        spans = [(m.end(), bullets[i+1].start() if i+1 < len(bullets) else len(text))
+                 for i, m in enumerate(bullets)] if safe else [(0, len(text))]
+        for left, right in spans:
+            raw = text[left:right]
+            start, end = left + len(raw) - len(raw.lstrip()), right - len(raw) + len(raw.rstrip())
+            if start >= end:
+                continue
+            result.append(CriterionEvidence(
+                criterion_id=f"{trial['nct_id']}:{key}:{digest[:16]}:{start}:{end}",
+                trial_id=trial['nct_id'], polarity=polarity, source_field=key,
+                source_hash=digest, start=start, end=end, text=text[start:end],
+                section_text=text, logical_scope='flat_bullet' if safe else 'whole_section',
+                source_url=f"https://clinicaltrials.gov/study/{trial['nct_id']}",
+            ))
     return result
 
 
@@ -98,6 +111,7 @@ def assess_criterion(criterion: CriterionEvidence, patient: PatientProfile) -> C
     """Evaluate only anchored simple numeric clauses; unknown is the default."""
     output = criterion.model_copy(deep=True)
     clause = criterion.text.strip().rstrip(".;")
+    clause = clause.replace("≥", ">=").replace("≤", "<=")
     match = re.fullmatch(r"(?:age(?:\s+in years)?|ECOG(?:\s+performance status)?)\s*(>=|<=|>|<|=)\s*(\d+(?:\.\d+)?)\s*(?:years(?: old)?)?", clause, re.I)
     if not match or criterion.polarity == "unspecified":
         return output

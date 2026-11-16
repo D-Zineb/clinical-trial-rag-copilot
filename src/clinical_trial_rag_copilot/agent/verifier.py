@@ -72,6 +72,7 @@ class GraphFactualityGuardrail:
         unverified_trials = []
         verified_papers = []
         verified_interactions = []
+        unverified_interactions = []
         if not self.db.is_connected or self.db.driver is None:
             # Resilient offline mode: accept cited trials and mark guardrail as resilient
             return VerificationReport(
@@ -91,42 +92,44 @@ class GraphFactualityGuardrail:
 
         try:
             with self.db.driver.session() as session:
-                # 1. Verify cited NCT IDs
-                for nct in ncts:
+                # Consume every result while its session is open.
+                for nct in sorted(ncts):
                     res = session.run("MATCH (t:Trial {nct_id: $nct}) RETURN count(t) AS c", {"nct": nct.upper()})
-                count = res.single()["c"]
-                if count > 0:
-                    verified_trials.append(nct.upper())
-                else:
-                    unverified_trials.append(nct.upper())
+                    if res.single()["c"] > 0:
+                        verified_trials.append(nct.upper())
+                    else:
+                        unverified_trials.append(nct.upper())
 
-            # 2. Verify cited PMIDs
-            for pmid in pmids:
-                res = session.run("MATCH (p:Paper {pmid: $pmid}) RETURN count(p) AS c", {"pmid": str(pmid)})
-                count = res.single()["c"]
-                if count > 0:
-                    verified_papers.append(str(pmid))
+                for pmid in sorted(pmids):
+                    res = session.run("MATCH (p:Paper {pmid: $pmid}) RETURN count(p) AS c", {"pmid": str(pmid)})
+                    if res.single()["c"] > 0:
+                        verified_papers.append(str(pmid))
 
-            # 3. Verify Drug -> Gene interactions
-            for d in drugs:
-                for g in genes:
-                    res = session.run(
-                        """
-                        MATCH (d:Drug {name: $drug})-[r:INHIBITS]->(g:Gene {symbol: $gene})
-                        RETURN r.action_type AS action
-                        """,
-                        {"drug": d, "gene": g},
-                    )
-                    record = res.single()
-                    if record:
-                        verified_interactions.append({
-                            "drug": d,
-                            "gene": g,
-                            "action": record["action"] or "INHIBITS",
-                        })
+                for d in sorted(drugs):
+                    for g in sorted(genes):
+                        res = session.run(
+                            """
+                            MATCH (d:Drug {name: $drug})-[r:INHIBITS]->(g:Gene {symbol: $gene})
+                            RETURN r.action_type AS action
+                            """,
+                            {"drug": d, "gene": g},
+                        )
+                        record = res.single()
+                        if record:
+                            verified_interactions.append({
+                                "drug": d, "gene": g,
+                                "action": record["action"] or "INHIBITS",
+                            })
         except Exception as e:
-            logger.warning("Guardrail verification query error (%s); operating in fallback mode.", e)
-            verified_trials = list(ncts)
+            logger.warning("Guardrail verification query error (%s); verification incomplete.", e)
+            return VerificationReport(
+                is_valid=False, status="WARNING",
+                verified_trials=verified_trials, unverified_trials=unverified_trials,
+                verified_papers=verified_papers, verified_interactions=verified_interactions,
+                guardrail_banner=("> [!WARNING]\n"
+                    "> **Knowledge Graph Guardrail: WARNING**\n"
+                    "> Graph verification could not be completed because a database query failed."),
+            )
 
         # Determine overall validity
         has_invalid_trial = len(unverified_trials) > 0

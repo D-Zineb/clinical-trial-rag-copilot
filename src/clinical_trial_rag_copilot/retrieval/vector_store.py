@@ -121,6 +121,20 @@ class LocalVectorStore:
             self.load()
         return [c for c in self.chunks if c.get("doc_id") == doc_id]
 
+    def score_documents(self, query, doc_ids):
+        """Score every stored chunk for specified documents, without top-k loss."""
+        if self.vectors is None or not self.chunks:
+            self.load()
+        q = np.asarray(self.embedding_provider.embed_query(query), dtype=float)
+        q /= max(np.linalg.norm(q), 1e-12)
+        wanted, scores = set(doc_ids), {}
+        for chunk, vector in zip(self.chunks, self.vectors):
+            doc = chunk['doc_id']
+            if doc in wanted:
+                score = float(np.dot(vector, q) / max(np.linalg.norm(vector), 1e-12))
+                scores[doc] = max(scores.get(doc, -float('inf')), score)
+        return scores
+
     def search(
         self,
         query: str,
@@ -304,6 +318,27 @@ class PineconeVectorStore:
                 if chunk["doc_id"] == doc_id:
                     chunks.append(chunk)
         return sorted(chunks, key=lambda c: c["chunk_id"])
+
+    def score_documents(self, query, doc_ids):
+        """Fetch stored vectors, avoiding ANN top-k truncation of graph matches."""
+        if self.index is None:
+            self.load()
+        q = np.asarray(self._provider().embed_query(query), dtype=float)
+        q /= max(np.linalg.norm(q), 1e-12)
+        scores = {}
+        for doc in doc_ids:
+            batches = self.index.list(prefix=f"{doc}_", namespace=self.namespace) if doc.startswith('NCT') else [[f"PMID_{doc}"]]
+            for ids in batches:
+                records = self.index.fetch(ids=ids, namespace=self.namespace).vectors.values()
+                for record in records:
+                    if record.metadata.get('doc_id') != doc:
+                        continue
+                    vector = np.asarray(record.values, dtype=float)
+                    if vector.size != q.size:
+                        raise ValueError("Stored vector dimension differs from query embedding")
+                    score = float(np.dot(vector, q) / max(np.linalg.norm(vector), 1e-12))
+                    scores[doc] = max(scores.get(doc, -float('inf')), score)
+        return scores
 
     def search(self, query, top_k=5, chunk_type=None, filter_fn=None):
         if top_k <= 0:

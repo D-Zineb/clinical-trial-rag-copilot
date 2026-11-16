@@ -78,3 +78,23 @@ def test_api_traces_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
+
+
+def test_evaluation_capture_uses_generation_context():
+    from clinical_trial_rag_copilot.agent.copilot import ClinicalGraphRAGCopilot
+    from clinical_trial_rag_copilot.agent.llm_client import BaseLLMClient
+
+    class RecordingLLM(BaseLLMClient):
+        def generate(self, system_prompt, user_prompt):
+            self.prompt = user_prompt
+            return 'An answer for evaluation.'
+
+    llm = RecordingLLM()
+    copilot = ClinicalGraphRAGCopilot(llm_client=llm)
+    answer = copilot.ask('Osimertinib EGFR trials', capture_evaluation=True)
+    captured = answer.evaluation_sample
+    assert captured['response'] == 'An answer for evaluation.'
+    assert captured['user_input'] == answer.query
+    assert captured['retrieved_contexts'][0] in llm.prompt
+    assert answer.guardrail_banner not in captured['response']
+    assert copilot.ask('Osimertinib EGFR trials').evaluation_sample is None

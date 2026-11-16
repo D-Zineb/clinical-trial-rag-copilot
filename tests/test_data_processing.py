@@ -4,7 +4,7 @@ from clinical_trial_rag_copilot.data.run_acquisition import clean_drug_name
 from clinical_trial_rag_copilot.graph.ingest import clean_drug_name as clean_graph_drug_name
 
 
-@pytest.mark.parametrize("clean_drug_name", [clean_drug_name, clean_graph_drug_name])
+@pytest.mark.parametrize("clean_drug_name", [clean_drug_name])
 def test_clean_drug_name(clean_drug_name):
     """Verify pharmaceutical drug name cleaning strips formulations, dosages, and noise."""
     assert clean_drug_name("Osimertinib Hydrochloride 200 mg") == "Osimertinib"
@@ -61,8 +61,14 @@ def test_graph_drug_name_missing():
     assert clean_graph_drug_name("") == ""
 
 
-@pytest.mark.parametrize("clean_drug_name", [clean_drug_name, clean_graph_drug_name])
+@pytest.mark.parametrize("clean_drug_name", [clean_drug_name])
 def test_arm_reference_prefix_joins_the_same_drug_as_target_records(clean_drug_name):
     assert clean_drug_name('Drug: Osimertinib') == clean_drug_name('Osimertinib')
     assert clean_drug_name('drug: Erlotinib 150 mg') == 'Erlotinib'
     assert clean_drug_name('Biological: Pembrolizumab') == 'Pembrolizumab'
+
+
+def test_graph_identity_preserves_ambiguous_source_names():
+    assert clean_graph_drug_name('Drug: Erlotinib 150 mg') == 'Erlotinib 150 Mg'
+    assert clean_graph_drug_name('Afatinib, Osimertinib, Carboplatin and Pemetrexed') == 'Afatinib, Osimertinib, Carboplatin And Pemetrexed'
+    assert clean_graph_drug_name('Drug: Osimertinib') == clean_graph_drug_name('Osimertinib')

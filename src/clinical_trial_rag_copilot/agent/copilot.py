@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from clinical_trial_rag_copilot.retrieval.hybrid_search import HybridEvidence, HybridRetriever
 from clinical_trial_rag_copilot.agent.llm_client import BaseLLMClient, get_llm_client
-from clinical_trial_rag_copilot.agent.prompt_templates import SYSTEM_PROMPT, create_user_prompt
+from clinical_trial_rag_copilot.agent.prompt_templates import SYSTEM_PROMPT, create_user_prompt, format_evidence_context
 from clinical_trial_rag_copilot.agent.verifier import GraphFactualityGuardrail, VerificationReport
 from clinical_trial_rag_copilot.observability.tracer import PipelineTracer, traceable
 from clinical_trial_rag_copilot.utils.logger import get_logger
@@ -30,6 +30,7 @@ class CopilotAnswer(BaseModel):
     verified_interactions: List[Dict[str, str]] = Field(default_factory=list)
     retrieved_ncts: List[str] = Field(default_factory=list)
     retrieved_pmids: List[str] = Field(default_factory=list)
+    evaluation_sample: Optional[Dict[str, Any]] = None
 
 
 class ClinicalGraphRAGCopilot:
@@ -41,7 +42,7 @@ class ClinicalGraphRAGCopilot:
         self.guardrail = GraphFactualityGuardrail()
 
     @traceable(name="ClinicalGraphRAGCopilot.ask", run_type="chain")
-    def ask(self, query: str, top_k: int = 6) -> CopilotAnswer:
+    def ask(self, query: str, top_k: int = 6, capture_evaluation: bool = False) -> CopilotAnswer:
         """Process a clinical question through the complete GraphRAG pipeline with telemetry tracing."""
         tracer = PipelineTracer()
 
@@ -113,6 +114,11 @@ class ClinicalGraphRAGCopilot:
             verified_interactions=report.verified_interactions,
             retrieved_ncts=evidence.fused_ncts,
             retrieved_pmids=evidence.fused_pmids,
+            evaluation_sample={
+                "user_input": query,
+                "response": raw_answer,
+                "retrieved_contexts": [format_evidence_context(evidence)],
+            } if capture_evaluation else None,
         )
 
 

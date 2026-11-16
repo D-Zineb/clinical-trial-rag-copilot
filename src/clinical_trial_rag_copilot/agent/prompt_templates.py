@@ -2,7 +2,7 @@ from typing import Any, Dict, List
 from clinical_trial_rag_copilot.retrieval.hybrid_search import HybridEvidence
 
 SYSTEM_PROMPT = """You are an expert Clinical Trials & Pharmacology AI Copilot specializing in oncology and EGFR-targeted lung cancer therapy.
-Your task is to synthesize verified, multi-hop medical answers based EXCLUSIVELY on the provided dual-indexed evidence (Neo4j Knowledge Graph facts and PubMed / ClinicalTrials text chunks).
+Your task is to synthesize verified, multi-hop medical answers based EXCLUSIVELY on the provided source evidence (graph discovery records and PubMed / ClinicalTrials text chunks). Graph mentions and target records are not independently verified clinical facts.
 
 STRICT GUIDELINES:
 1. CITATIONS ARE MANDATORY:
@@ -23,12 +23,21 @@ def format_evidence_context(evidence: HybridEvidence) -> str:
     """Format structured Knowledge Graph paths and unstructured vector chunks into prompt context."""
     sections: List[str] = []
 
+    if evidence.retrieval_warnings:
+        sections.append("RETRIEVAL LIMITATIONS:\n" + "\n".join(evidence.retrieval_warnings))
     # 1. Structured Knowledge Graph Facts
-    sections.append("### 1. STRUCTURED KNOWLEDGE GRAPH FACTS (NEO4J VERIFIED)")
+    sections.append("### 1. STRUCTURED DISCOVERY RECORDS (SOURCE RELATIONS; NOT ELIGIBILITY VERDICTS)")
     if evidence.graph_evidence:
         for idx, g in enumerate(evidence.graph_evidence[:10], 1):
             src = g.get("source", "")
-            if src == "GRAPH_GENE_PATHWAY":
+            if src == "GRAPH_TRIAL_CONSTRAINTS":
+                sections.append(
+                    f"{idx}. [Trial: {g.get('nct_id')}] '{g.get('title')}'\n"
+                    f"   - Conditions: {', '.join(g.get('conditions', []))}\n"
+                    f"   - Source predicates matched: {g.get('matched_constraints', {})}\n"
+                    "   - Drug-target links describe intervention discovery; patient eligibility and efficacy are not assessed."
+                )
+            elif src == "GRAPH_GENE_PATHWAY":
                 sections.append(
                     f"{idx}. [Trial: {g.get('nct_id')}] '{g.get('title')}'\n"
                     f"   - Study Arm: '{g.get('arm')}' (Type: {g.get('arm_type')})\n"
@@ -46,9 +55,9 @@ def format_evidence_context(evidence: HybridEvidence) -> str:
             elif src == "GRAPH_SAFETY_LITERATURE":
                 sections.append(
                     f"{idx}. [Paper: PMID {g.get('pmid')}] '{g.get('title')}' ({g.get('year')})\n"
-                    f"   - Reported Adverse Events: {', '.join(g.get('adverse_events', []))}\n"
-                    f"   - Cited Drugs: {', '.join(g.get('drugs', []))}\n"
-                    f"   - Studied Genes: {', '.join(g.get('genes', []))}"
+                    f"   - Indexed Adverse Event Terms: {', '.join(g.get('adverse_events', []))}\n"
+                    f"   - Drug Mentions: {', '.join(g.get('drugs', []))}\n"
+                    f"   - Gene Mentions: {', '.join(g.get('genes', []))}"
                 )
     else:
         sections.append("No direct multi-hop graph paths matched the query entities.")
@@ -97,11 +106,13 @@ def create_user_prompt(query: str, evidence: HybridEvidence) -> str:
         f"USER CLINICAL QUESTION:\n{query}\n\n"
         f"RETRIEVED MULTI-HOP EVIDENCE:\n{context_str}\n\n"
         "SYNTHESIS INSTRUCTION:\n"
-        "Provide a comprehensive, medically accurate analysis answering the user's question. "
-        "Structure your response with clear headings: \n"
-        "1. Executive Summary\n"
-        "2. Clinical Trials & Comparative Arms Analysis (with NCT citations)\n"
-        "3. Pharmacology & Target Gene Mechanism (e.g., EGFR)\n"
-        "4. Safety Profile & Adverse Events (with PMID citations)\n"
-        "5. Patient Eligibility & Demographic Considerations"
+        "Answer the user's specific question directly, using only the supplied evidence. "
+        "Match the scope of the answer to the question. For a narrow lookup, use a short "
+        "paragraph or a few bullets containing only the requested facts, essential qualifiers, "
+        "and source citations. Preserve exact bounds, negations, and exceptions. "
+        "Do not add unrelated study summaries, pharmacology, safety, or demographic sections. "
+        "If an exact trial ID is requested, use evidence for that ID; do not substitute another trial. "
+        "If the requested information is absent, state that limitation briefly. "
+        "Use a longer structured analysis only when the question requests one. "
+        "Do not append offers of additional help."
     )

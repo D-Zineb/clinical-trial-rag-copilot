@@ -15,18 +15,12 @@ def clean_name(text: str) -> str:
 
 
 def clean_drug_name(raw_name: str) -> str:
-    """Clean dosage, formulation, and commercial prefixes/suffixes from drug names."""
-    if not raw_name:
-        return ""
-    raw_name = re.sub(r"^(?:drug|biological)\s*:\s*", "", raw_name.strip(), flags=re.I)
-    name = re.sub(
-        r"(?i)\b(injection|tablet|capsule|oral|infusion|solution|hydrochloride|succinate|tartrate|fumarate|maleate|mesylate|phosphate|sulfate|acetate)\b",
-        "",
-        raw_name,
-    )
-    name = re.sub(r"\d+(\.\d+)?\s*(mg|mcg|ml|g)\b", "", name, flags=re.I)
-    name = name.split("(")[0].split(",")[0].strip()
-    return name.title()
+    """Preserve source identity; do not collapse salts, doses or combinations.
+
+    Reviewed equivalences belong in a separate versioned alias map. The default
+    contract matches the source-predicate benchmark.
+    """
+    return re.sub(r"^(?:drug|biological)\s*:\s*", "", (raw_name or "").strip(), flags=re.I).title()
 
 
 def ingest_trials(batch_size: int = 250):
@@ -34,6 +28,10 @@ def ingest_trials(batch_size: int = 250):
     trials = load_dataset("oncology_trials.json")
 
     db = get_db()
+    with db.driver.session() as session:
+        legacy = session.run("MATCH (t:Trial) WHERE coalesce(t.identity_contract, '') <> 'exact-name-v2' RETURN count(t) AS count").single()['count']
+        if legacy:
+            raise RuntimeError("Legacy graph identities detected. Rebuild into an empty database; in-place ingestion would retain stale drug edges.")
     print(f"\n[1/3] Ingesting {len(trials)} Clinical Trials into Neo4j...")
 
     # Prepare normalized records for UNWIND batching
@@ -57,6 +55,8 @@ def ingest_trials(batch_size: int = 250):
             label = arm.get("label", "").strip() or f"Arm_{idx+1}"
             arm_drugs = []
             for raw_i in arm.get("intervention_names", []):
+                if not re.match(r"^(drug|biological)\s*:", raw_i, re.I):
+                    continue
                 c_drug = clean_drug_name(raw_i)
                 if len(c_drug) > 2 and not c_drug.lower().startswith("placebo"):
                     arm_drugs.append(c_drug)
@@ -95,7 +95,8 @@ def ingest_trials(batch_size: int = 250):
     UNWIND $batch AS row
     // 1. Create or Match Trial Node with Demographics
     MERGE (t:Trial {nct_id: row.nct_id})
-    SET t.brief_title = row.brief_title,
+    SET t.identity_contract = 'exact-name-v2',
+        t.brief_title = row.brief_title,
         t.phase = row.phase,
         t.study_type = row.study_type,
         t.status = row.status,
@@ -130,7 +131,8 @@ def ingest_trials(batch_size: int = 250):
     // 5. ArmGroup Nodes & Comparative Edges
     FOREACH (arm IN row.arm_groups |
         MERGE (a:ArmGroup {id: arm.id})
-        SET a.label = arm.label,
+        SET a.identity_contract = 'exact-name-v2',
+            a.label = arm.label,
             a.type = arm.type,
             a.description = arm.description
         MERGE (t)-[:HAS_ARM]->(a)
@@ -157,7 +159,7 @@ def ingest_drug_targets(batch_size: int = 100):
 
     records = []
     for item in targets_data:
-        drug_name = item.get("drug_name", "").strip().title()
+        drug_name = clean_drug_name(item.get("drug_name", ""))
         for tgt in item.get("targets", []):
             symbol = tgt.get("gene_symbol")
             if symbol and len(symbol) >= 2:
@@ -176,8 +178,9 @@ def ingest_drug_targets(batch_size: int = 100):
     ON CREATE SET g.name = row.target_name,
                   g.target_class = row.target_class
 
-    MERGE (d)-[r:INHIBITS]->(g)
-    SET r.action_type = row.action_type
+    MERGE (d)-[r:HAS_TARGET {action_type: row.action_type}]->(g)
+    SET r.source_dataset = 'drug_targets_pharmacology.json',
+        r.evidence_kind = 'source_target_record', r.identity_contract = 'exact-name-v2'
     """
 
     with db.driver.session() as session:
@@ -214,7 +217,7 @@ def ingest_pubmed_literature(batch_size: int = 200):
         # Detect cited drugs and studied genes directly in the scientific abstract
         cited_drugs = list(set(m.group(0).title() for m in drug_pattern.finditer(abstract))) if drug_pattern else []
         studied_genes = list(set(m.group(0).upper() for m in gene_pattern.finditer(abstract))) if gene_pattern else []
-        
+
         # Filter MeSH terms to cardiac conditions & adverse events
         mesh = [m.title() for m in p.get("mesh_terms", []) if any(ae.lower() in m.lower() for ae in adverse_events_whitelist)]
 
@@ -236,19 +239,22 @@ def ingest_pubmed_literature(batch_size: int = 200):
     // Link paper to Adverse Events
     FOREACH (ae IN row.adverse_events |
         MERGE (a:AdverseEvent {name: ae})
-        MERGE (p)-[:REPORTS_ADVERSE_EVENT]->(a)
+        MERGE (p)-[r:INDEXED_ADVERSE_EVENT]->(a)
+        SET r.source_pmid = row.pmid, r.evidence_kind = 'mesh_index_term'
     )
 
     // Link paper to cited drugs
     FOREACH (drug IN row.cited_drugs |
         MERGE (d:Drug {name: drug})
-        MERGE (p)-[:CITES_DRUG]->(d)
+        MERGE (p)-[r:MENTIONS_DRUG]->(d)
+        SET r.source_pmid = row.pmid, r.evidence_kind = 'abstract_mention'
     )
 
     // Link paper to studied genes
     FOREACH (gene IN row.studied_genes |
         MERGE (g:Gene {symbol: gene})
-        MERGE (p)-[:STUDIES_GENE]->(g)
+        MERGE (p)-[r:MENTIONS_GENE]->(g)
+        SET r.source_pmid = row.pmid, r.evidence_kind = 'abstract_mention'
     )
     """
 

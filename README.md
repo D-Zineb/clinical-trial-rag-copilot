@@ -104,33 +104,19 @@ Every query is instrumented with fine-grained span telemetry capturing step-by-s
 
 ---
 
-## 🧪 Comprehensive Automated Testing (15/15 PyTest Passed)
+## 🧪 Automated testing
 
-Run the full automated test suite:
+Run the full suite, including the optional Ragas integration tests:
+
 ```bash
-uv run pytest -v
+uv run --extra eval python -m pytest -q
 ```
 
-```text
-============================= test session starts =============================
-tests/test_api.py::test_api_health_check PASSED                          [  6%]
-tests/test_api.py::test_api_query_endpoint PASSED                        [ 13%]
-tests/test_api.py::test_api_guardrail_verify_endpoint PASSED             [ 20%]
-tests/test_api.py::test_api_traces_endpoint PASSED                       [ 26%]
-tests/test_chunking.py::test_create_trial_chunks PASSED                  [ 33%]
-tests/test_chunking.py::test_create_literature_chunk PASSED              [ 40%]
-tests/test_chunking.py::test_build_all_chunks PASSED                     [ 46%]
-tests/test_data_processing.py::test_clean_drug_name PASSED               [ 53%]
-tests/test_data_processing.py::test_parse_age_to_years PASSED            [ 60%]
-tests/test_data_processing.py::test_split_eligibility_criteria PASSED    [ 66%]
-tests/test_data_processing.py::test_split_criteria_missing_exclusion PASSED [ 73%]
-tests/test_guardrail.py::test_guardrail_extracts_entities PASSED         [ 80%]
-tests/test_guardrail.py::test_guardrail_resilient_handling PASSED        [ 86%]
-tests/test_vector_store.py::test_vector_store_build_and_search PASSED    [ 93%]
-tests/test_vector_store.py::test_vector_store_persistence PASSED         [100%]
-
-============================= 15 passed in 4.85s ==============================
-```
+The latest validation on **2026-11-16 passed 108 tests**. Coverage includes retrieval,
+exact trial-ID lookup, API behavior, source processing, guardrail database-session
+handling, and Ragas budget enforcement and caching. Automated Ragas tests use a mocked
+OpenAI client and make no paid judge calls. Live pilot results are reported separately
+below; passing software tests does not establish clinical accuracy.
 
 ---
 
@@ -324,3 +310,98 @@ still return partial results under the existing source error handling. Use a new
 prefix for a fresh collection if you want to preserve your previous dataset.
 Fetching does not automatically update Pinecone or Neo4j. No live acquisition or
 S3 upload is performed by the automated tests.
+
+## Ragas answer evaluation
+
+Ragas supplements the existing retrieval tests with two answer-level metrics:
+
+| Metric | What it measures |
+|---|---|
+| Faithfulness | Whether answer claims are supported by the evidence supplied to the generator |
+| Factual correctness (F1) | Whether answer claims agree with an independently prepared reference answer, including coverage of reference claims |
+
+The evaluator reads saved question–answer–evidence–reference records. It does not
+regenerate answers or query the retrieval databases. The integration uses **Ragas
+0.4.4** and **GPT-5.4 mini** as the judge. A paid run loads `OPENAI_API_KEY` from the
+repository-root `.env`; existing environment variables take precedence.
+
+### Run a free validation
+
+```bash
+uv sync --extra eval
+uv run --extra eval python -m clinical_trial_rag_copilot.eval.ragas_eval \
+  --samples eval/cases/ragas_demo.jsonl
+```
+
+The default is a **dry-run**: it validates the input and makes no model requests.
+The supplied demo contains fictional examples, not clinical benchmark results.
+
+To score those two examples with API credit:
+
+```bash
+uv run --extra eval python -m clinical_trial_rag_copilot.eval.ragas_eval \
+  --samples eval/cases/ragas_demo.jsonl \
+  --limit 2 --budget-usd 0.25 --max-calls 20 --execute
+```
+
+Paid requests require `--execute`. The runner checks a conservative cost reservation
+before every request, limits request counts and output tokens, records reported token
+usage, and caches completed scores. These are **per-run controls**, not account-wide
+billing caps. Answer generation, other processes, AWS/database costs, and taxes are
+outside the judge allowance. Adding an OpenAI key also enables paid generation in
+the existing application's automatic provider selection.
+
+### Five-case pilot results
+
+On **2026-11-16**, we evaluated five targeted lookup questions across three trial
+records. The pilot exposed a missed trial lookup and overly broad answers. We added
+direct source lookup for explicit NCT IDs and changed the prompt to produce focused
+answers for narrow questions. We then reran the same questions with **unchanged
+reference answers and source hashes**, preserving the baseline.
+
+| Measure | Baseline | After changes |
+|---|---:|---:|
+| Requested trial present in top-three results | 4/5 | **5/5** |
+| Average faithfulness | 0.969 | **1.000** |
+| Average factual correctness F1 | 0.338 | **0.706** |
+| Total generated answer length | 13,032 characters | **1,202 characters** |
+
+The answers became approximately **91% shorter**. Inspection of the requested facts
+found that all five updated answers matched the source-checked expected facts.
+
+**Interpret scores carefully.** The updated comparator answer received factual
+correctness **0.00** despite naming the expected treatments. A separate logged
+diagnostic showed that Ragas bundled the trial ID and IV administration into each
+claim, while the short reference omitted those details. The judge rejected the
+bundled claims but confirmed, in the reverse check, that the answer supported all
+three reference treatment claims. The zero remains in the reported average; no
+reference was rewritten to improve the result.
+
+Faithfulness also does not establish successful answering: the baseline comparator
+answer scored 1.00 while acknowledging that the requested evidence was missing.
+
+### Cost and conclusion
+
+Calculated OpenAI usage for the fictional demo, baseline pilot, improved pilot, and
+comparator diagnostic totaled **$0.2279 (about $0.23)**. The improved five-case run
+cost **$0.0658** for generation and judging, plus **$0.0043** for the separate diagnostic.
+These figures use reported tokens and configured list rates; they exclude AWS/database
+charges and taxes and are not a forecast for longer or larger evaluations.
+
+**Use Ragas as a diagnostic tool alongside retrieval tests and human review, not as
+an independent clinical pass/fail gate.** This pilot uses assistant-checked references,
+the same generator and judge model, and only five targeted questions. Live indexes
+were not frozen between runs. The results demonstrate improvements on these cases,
+not general clinical reliability. The next evaluation step is clearer reference-answer
+guidelines and a broader set of 20–30 independently reviewed cases before setting gates.
+
+For setup, reproduction, interpretation, and saved-artifact locations:
+
+- [Step-by-step learning guide](eval/ragas_guide.md)
+- [Baseline pilot findings](eval/ragas_pilot_findings.md)
+- [Before/after comparison and diagnostic explanation](eval/ragas_pilot_comparison.md)
+- [Pilot questions, references, and supporting excerpts](eval/cases/ragas_pilot_references.jsonl)
+
+Generated reports, captured evidence, and score caches live under `eval/generated/`
+and `eval/ragas_runs/` and are ignored by Git. They must be shared separately when
+another reader needs to inspect a recorded run.

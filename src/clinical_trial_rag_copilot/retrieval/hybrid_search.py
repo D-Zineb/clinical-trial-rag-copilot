@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Literal
 from pydantic import BaseModel, Field
 
 from clinical_trial_rag_copilot.graph.connection import get_db
@@ -19,6 +19,19 @@ class QueryEntities(BaseModel):
     max_age: Optional[float] = None
     sex: Optional[str] = None
     unresolved_terms: List[str] = Field(default_factory=list)
+    operators: Dict[Literal['genes', 'drugs', 'conditions', 'adverse_events'], Literal['all', 'any']] = Field(default_factory=dict)
+    interpretation_warnings: List[str] = Field(default_factory=list)
+
+
+def vocabulary_mentions(query, vocabulary):
+    """Resolve overlapping spans deterministically, retaining longest mentions."""
+    spans = [(m.start(), m.end(), name) for name in sorted(vocabulary)
+             for m in re.finditer(r'(?<!\w)' + re.escape(name) + r'(?!\w)', query, re.I)]
+    selected = []
+    for span in sorted(spans, key=lambda x: (-(x[1] - x[0]), x[0], x[2])):
+        if not any(span[0] < end and start < span[1] for start, end, _ in selected):
+            selected.append(span)
+    return sorted(selected)
 
 
 class GraphCandidate(BaseModel):
@@ -90,28 +103,49 @@ class ClinicalEntityExtractor:
         extracted_conditions = []
         extracted_aes = []
 
-        # Gene matching
-        for g in self.known_genes:
-            if re.search(r"\b" + re.escape(g.lower()) + r"\b", q_lower):
-                extracted_genes.append(g)
-
-        # Drug matching
-        for d in self.known_drugs:
-            if len(d) >= 4 and re.search(r"\b" + re.escape(d.lower()) + r"\b", q_lower):
-                extracted_drugs.append(d)
-
-        # Condition matching
-        for c in self.known_conditions:
-            if len(c) >= 5 and re.search(r"\b" + re.escape(c.lower()) + r"\b", q_lower):
-                extracted_conditions.append(c)
-
-        # Adverse event matching
-        # Keep recognized safety terms even when ingestion has no such node.
-        # Dropping a missing constraint would silently broaden the query.
         safety_terms = self.known_aes | {"Pneumonitis", "QT Prolongation", "Diarrhea", "Skin Rash", "Neutropenia"}
-        for ae in safety_terms:
-            if re.search(r"\b" + re.escape(ae.lower()) + r"\b", q_lower):
-                extracted_aes.append(ae)
+        vocabularies = dict(genes=self.known_genes, drugs=self.known_drugs,
+                            conditions=self.known_conditions, adverse_events=safety_terms)
+        mentions = {field: vocabulary_mentions(query, vocab) for field, vocab in vocabularies.items()}
+        # Explicit aliases only; do not infer disease equivalence from substrings.
+        aliases = {"NSCLC": "Non-Small Cell Lung Cancer", "SCLC": "Small Cell Lung Cancer"}
+        for alias, canonical in aliases.items():
+            name = next((v for v in self.known_conditions if v.casefold() == canonical.casefold()), None)
+            if name:
+                mentions['conditions'].extend((a, b, name) for a, b, _ in vocabulary_mentions(query, {alias}))
+        # Registry conditions occasionally contain drug/gene names. A single
+        # span must not become multiple conjunctive entity types. Longer disease
+        # names win; exact ties prefer specific drug/gene vocabularies.
+        priority = {'drugs': 0, 'genes': 1, 'adverse_events': 2, 'conditions': 3}
+        selected = []
+        candidates = [(a, b, name, field) for field, spans in mentions.items() for a, b, name in spans]
+        for candidate in sorted(candidates, key=lambda x: (-(x[1]-x[0]), priority[x[3]], x[0], x[2])):
+            a, b, _, _ = candidate
+            if not any(a < end and start < b for start, end, _, _ in selected):
+                selected.append(candidate)
+        mentions = {field: [(a, b, name) for a, b, name, kind in selected if kind == field]
+                    for field in mentions}
+        extracted = {field: list(dict.fromkeys(name for _, _, name in sorted(spans)))
+                     for field, spans in mentions.items()}
+        operators = {}
+        interpretation_warnings = []
+        all_mentions = sorted(selected)
+        for left, right in zip(all_mentions, all_mentions[1:]):
+            if left[3] != right[3] and re.search(r'\bor\b', query[left[1]:right[0]], re.I):
+                interpretation_warnings.append("Cross-category OR requires structured review; graph discovery skipped.")
+        if re.search(r'\b(mutation|mutant|variant|resistance|eligible|eligibility)\b', q_lower):
+            interpretation_warnings.append("Patient biomarker or eligibility scope is unsupported by discovery links; graph discovery skipped.")
+        for field, spans in mentions.items():
+            spans = sorted(spans)
+            connectors = [query[left[1]:right[0]].strip().lower() for left, right in zip(spans, spans[1:])]
+            if connectors and all(c == 'or' for c in connectors):
+                operators[field] = 'any'
+            elif any(re.search(r'\bor\b', c) for c in connectors):
+                interpretation_warnings.append(f"Ambiguous Boolean scope for {field}; graph discovery skipped.")
+        if re.search(r'\b(no|not|without|excluding|except)\b', q_lower):
+            interpretation_warnings.append("Negation requires structured review; graph discovery skipped.")
+        extracted_genes, extracted_drugs = extracted['genes'], extracted['drugs']
+        extracted_conditions, extracted_aes = extracted['conditions'], extracted['adverse_events']
 
         # Age extraction (e.g., ">= 65", "older than 60", "aged 18 to 75")
         min_age = None
@@ -129,12 +163,13 @@ class ClinicalEntityExtractor:
 
         # Sex extraction
         sex = None
-        if "female" in q_lower or "women" in q_lower:
+        if re.search(r"\b(female|women)\b", q_lower):
             sex = "FEMALE"
-        elif "male" in q_lower or "men" in q_lower:
+        elif re.search(r"\b(male|men)\b", q_lower):
             sex = "MALE"
 
         return QueryEntities(
+            operators=operators, interpretation_warnings=interpretation_warnings,
             genes=extracted_genes,
             drugs=extracted_drugs,
             conditions=extracted_conditions,
@@ -154,24 +189,28 @@ class HybridRetriever:
         self.vector_store = vector_store or get_vector_store()
         self.extractor = ClinicalEntityExtractor()
 
-    def query_graph(self, entities: QueryEntities, limit: int = 15, *, strict: bool = False) -> List[Dict[str, Any]]:
+    def query_graph(self, entities: QueryEntities, limit: Optional[int] = 15, *, strict: bool = False) -> List[Dict[str, Any]]:
         """Execute deterministic multi-hop Cypher queries based on extracted entities."""
         if not self.db.is_connected or self.db.driver is None:
             if strict:
                 raise RuntimeError("Graph database is unavailable")
             return []
 
+        if entities.interpretation_warnings:
+            return []
+        if limit is not None and limit < 1:
+            raise ValueError("limit must be positive or None")
         graph_results: List[Dict[str, Any]] = []
 
         try:
             with self.db.driver.session() as session:
                 # Conjoin requested categories before selecting unique trials.
                 # These are discovery links, not patient eligibility predicates.
-                if entities.genes or entities.drugs or entities.conditions:
+                if (entities.genes or entities.drugs or entities.conditions) and not entities.adverse_events:
                     query_trials = """
                     MATCH (t:Trial)
                     WHERE (size($genes) = 0 OR ALL(symbol IN $genes WHERE EXISTS {
-                        MATCH (t)-[:HAS_ARM]->(:ArmGroup)-[:ADMINISTERS]->(d:Drug)-[:INHIBITS]->(g:Gene)
+                        MATCH (t)-[:HAS_ARM]->(:ArmGroup)-[:ADMINISTERS]->(d:Drug)-[:HAS_TARGET|INHIBITS]->(g:Gene)
                         WHERE g.symbol = symbol AND (size($drugs) = 0 OR d.name IN $drugs)
                     }))
                       AND (size($drugs) = 0 OR ALL(name IN $drugs WHERE EXISTS {
@@ -188,6 +227,11 @@ class HybridRetriever:
                            t.phase AS phase, collect(DISTINCT c.name) AS conditions
                     ORDER BY nct_id
                     """
+                    for field, variable in [('genes', 'symbol'), ('drugs', 'name'), ('conditions', 'name')]:
+                        if entities.operators.get(field) == 'any':
+                            query_trials = query_trials.replace(f'ALL({variable} IN ${field}', f'ANY({variable} IN ${field}')
+                    if limit is None:
+                        query_trials = query_trials.replace(' LIMIT $limit', '')
                     for record in session.run(query_trials, {
                         "genes": entities.genes, "drugs": entities.drugs,
                         "conditions": entities.conditions, "limit": limit,
@@ -201,25 +245,25 @@ class HybridRetriever:
                         })
 
                 # Query Path 3: Adverse Events & Literature Cross-Links
-                if entities.adverse_events or entities.genes or entities.drugs:
+                if (entities.adverse_events or entities.genes or entities.drugs) and not entities.conditions:
                     query_lit = """
                     MATCH (p:Paper)
                     // Require each requested category before optional expansion.
-                    WHERE (size($aes) = 0 OR EXISTS {
-                        MATCH (p)-[:REPORTS_ADVERSE_EVENT]->(matched_ae:AdverseEvent)
-                        WHERE matched_ae.name IN $aes
-                    })
-                      AND (size($drugs) = 0 OR EXISTS {
-                        MATCH (p)-[:CITES_DRUG]->(matched_drug:Drug)
-                        WHERE matched_drug.name IN $drugs
-                    })
-                      AND (size($genes) = 0 OR EXISTS {
-                        MATCH (p)-[:STUDIES_GENE]->(matched_gene:Gene)
-                        WHERE matched_gene.symbol IN $genes
-                    })
-                    OPTIONAL MATCH (p)-[:REPORTS_ADVERSE_EVENT]->(ae:AdverseEvent)
-                    OPTIONAL MATCH (p)-[:CITES_DRUG]->(d:Drug)
-                    OPTIONAL MATCH (p)-[:STUDIES_GENE]->(g:Gene)
+                    WHERE (size($aes) = 0 OR ALL(value IN $aes WHERE EXISTS {
+                        MATCH (p)-[:INDEXED_ADVERSE_EVENT|REPORTS_ADVERSE_EVENT]->(matched_ae:AdverseEvent)
+                        WHERE matched_ae.name = value
+                    }))
+                      AND (size($drugs) = 0 OR ALL(value IN $drugs WHERE EXISTS {
+                        MATCH (p)-[:MENTIONS_DRUG|CITES_DRUG]->(matched_drug:Drug)
+                        WHERE matched_drug.name = value
+                    }))
+                      AND (size($genes) = 0 OR ALL(value IN $genes WHERE EXISTS {
+                        MATCH (p)-[:MENTIONS_GENE|STUDIES_GENE]->(matched_gene:Gene)
+                        WHERE matched_gene.symbol = value
+                    }))
+                    OPTIONAL MATCH (p)-[:INDEXED_ADVERSE_EVENT|REPORTS_ADVERSE_EVENT]->(ae:AdverseEvent)
+                    OPTIONAL MATCH (p)-[:MENTIONS_DRUG|CITES_DRUG]->(d:Drug)
+                    OPTIONAL MATCH (p)-[:MENTIONS_GENE|STUDIES_GENE]->(g:Gene)
                     RETURN p.pmid AS pmid, p.title AS title, p.year AS year,
                            collect(DISTINCT ae.name) AS adverse_events,
                            collect(DISTINCT d.name)[..4] AS cited_drugs,
@@ -227,6 +271,11 @@ class HybridRetriever:
                     ORDER BY pmid
                     LIMIT $limit
                     """
+                    for field, parameter in [('adverse_events', 'aes'), ('drugs', 'drugs'), ('genes', 'genes')]:
+                        if entities.operators.get(field) == 'any':
+                            query_lit = query_lit.replace(f'ALL(value IN ${parameter}', f'ANY(value IN ${parameter}')
+                    if limit is None:
+                        query_lit = query_lit.replace('LIMIT $limit', '')
                     res = session.run(
                         query_lit,
                         {
@@ -252,8 +301,13 @@ class HybridRetriever:
 
         return graph_results
 
-    def retrieve(self, query: str, top_k: int = 8) -> HybridEvidence:
+    def retrieve(self, query: str, top_k: int = 8, candidate_k: Optional[int] = None) -> HybridEvidence:
         """Retrieve ranked dense evidence with supplemental graph discoveries."""
+        if top_k < 1:
+            raise ValueError("top_k must be positive")
+        candidate_k = max(100, top_k * 4) if candidate_k is None else candidate_k
+        if candidate_k < top_k:
+            raise ValueError("candidate_k must be at least top_k")
         # 1. Extract entities
         entities = self.extractor.extract(query)
 
@@ -266,33 +320,86 @@ class HybridRetriever:
         if entities.unresolved_terms:
             warnings.append("Recognized terms absent from graph vocabulary: " + ", ".join(entities.unresolved_terms))
 
-        # 2. Query Knowledge Graph
-        graph_items = self.query_graph(entities, limit=top_k * 2)
+        warnings.extend(entities.interpretation_warnings)
+        # Identifiers are exact lookup keys, not semantic similarity terms.
+        requested_ncts = list(dict.fromkeys(re.findall(r"\bNCT\d{8}\b", query.upper())))
+        fetched_chunks = {}
+        for nct in requested_ncts:
+            try:
+                fetched_chunks[nct] = [c for c in self.vector_store.get_chunks_by_doc_id(nct)
+                                       if c.get("doc_id") == nct]
+                if not fetched_chunks[nct]:
+                    warnings.append(f"No indexed source text found for requested trial {nct}.")
+            except Exception as exc:
+                logger.warning("Exact trial lookup failed for %s: %s", nct, exc)
+                warnings.append(f"Exact source lookup failed for requested trial {nct}; review available evidence.")
+        exact_ids = [nct for nct in requested_ncts if fetched_chunks.get(nct)]
+        if len(exact_ids) > top_k:
+            warnings.append("Requested trial count exceeds top_k; only the first requested trials fit the result limit.")
+        # Enumerate graph matches before relevance scoring; never truncate by ID.
+        try:
+            graph_items = self.query_graph(entities, limit=None, strict=True)
+        except Exception as exc:
+            logger.warning("Graph retrieval failed: %s", exc)
+            warnings.append("Graph retrieval failed; using dense candidates.")
+            graph_items = []
+        try:
+            vector_hits = self.vector_store.search(query, top_k=candidate_k)
+        except Exception:
+            if not exact_ids:
+                raise
+            vector_hits = []
+            warnings.append("Dense search failed; using exact trial text and available graph candidates.")
+        scores = {}
+        for hit in vector_hits:
+            scores[hit.doc_id] = max(scores.get(hit.doc_id, -float('inf')), hit.score)
+        graph_ids = {str(item.get('nct_id') or item.get('pmid')) for item in graph_items
+                     if item.get('nct_id') or item.get('pmid')}
+        if graph_ids:
+            # Shared stored embeddings, max chunk cosine per document.
+            try:
+                graph_scores = self.vector_store.score_documents(query, sorted(graph_ids))
+                scores.update(graph_scores)
+            except Exception as exc:
+                logger.warning("Graph candidate scoring failed: %s", exc)
+                warnings.append("Graph candidate scoring failed; retaining available dense scores.")
+            missing = graph_ids - scores.keys()
+            if missing:
+                warnings.append(f"Stored embeddings unavailable for {len(missing)} graph candidates; ranked after scored candidates.")
+        all_ids = set(scores) | graph_ids | set(exact_ids)
+        exact_order = {doc: rank for rank, doc in enumerate(exact_ids)}
+        has_constraints = bool(entities.genes or entities.drugs or entities.conditions or entities.adverse_events)
+        # Constraint matches first only for supported interpretation; absent links
+        # never delete dense candidates because graph coverage can be incomplete.
+        ordered = sorted(all_ids, key=lambda doc: (
+            exact_order.get(doc, len(exact_order)),
+            doc not in scores,
+            -(int(doc in graph_ids) if has_constraints and not entities.interpretation_warnings else 0),
+            -scores.get(doc, -float('inf')), doc))
+        sorted_ncts = [doc for doc in ordered if doc.startswith('NCT')]
+        sorted_pmids = [doc for doc in ordered if not doc.startswith('NCT')]
 
-        # 3. Vector Similarity Search
-        vector_hits = self.vector_store.search(query, top_k=top_k)
-
-        # Graph rows are an unordered candidate set, not a relevance ranking.
-        # Preserve unique dense document order; append graph-only discoveries.
-        sorted_ncts = list(dict.fromkeys(
-            [h.doc_id for h in vector_hits if h.doc_id.startswith("NCT")]
-            + [item["nct_id"] for item in graph_items if item.get("nct_id")]
-        ))
-        sorted_pmids = list(dict.fromkeys(
-            [h.doc_id for h in vector_hits if h.chunk_type == "LITERATURE_ABSTRACT" and h.doc_id]
-            + [str(item["pmid"]) for item in graph_items if item.get("pmid")]
-        ))
+        # Include source text for graph-only winners in the synthesis context.
+        winners = set(sorted_ncts[:top_k] + sorted_pmids[:top_k])
+        represented = {hit.doc_id for hit in vector_hits}
+        for doc in sorted(winners - represented):
+            if doc not in fetched_chunks:
+                fetched_chunks[doc] = self.vector_store.get_chunks_by_doc_id(doc)
+            for chunk in fetched_chunks[doc]:
+                vector_hits.append(SearchResult(**chunk, score=scores.get(doc, 0.0)))
 
         # Sibling Chunk Expansion: Pull companion chunks (Overview, Inclusion, Exclusion) for top winning trials
         sibling_chunks: Dict[str, List[Dict[str, Any]]] = {}
-        for nct in sorted_ncts[:3]:
-            sibling_chunks[nct] = self.vector_store.get_chunks_by_doc_id(nct)
+        for nct in sorted_ncts[:min(3, top_k)]:
+            if nct not in fetched_chunks:
+                fetched_chunks[nct] = self.vector_store.get_chunks_by_doc_id(nct)
+            sibling_chunks[nct] = fetched_chunks[nct]
 
         return HybridEvidence(
             query=query,
             extracted_entities=entities,
-            graph_evidence=graph_items,
-            vector_evidence=vector_hits,
+            graph_evidence=sorted([item for item in graph_items if str(item.get("nct_id") or item.get("pmid")) in winners], key=lambda item: ordered.index(str(item.get("nct_id") or item.get("pmid")))),
+            vector_evidence=sorted(vector_hits, key=lambda hit: (ordered.index(hit.doc_id), -hit.score))[:top_k],
             fused_ncts=sorted_ncts[:top_k],
             fused_pmids=sorted_pmids[:top_k],
             sibling_chunks=sibling_chunks,

@@ -43,6 +43,12 @@ dependencies = [
 [project.scripts]
 clinical-trial-rag-copilot = "clinical_trial_rag_copilot:main"
 
+[project.optional-dependencies]
+eval = [
+    "openai>=2,<3",
+    "ragas==0.4.4",
+]
+
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14.0"]
 build-backend = "uv_build"

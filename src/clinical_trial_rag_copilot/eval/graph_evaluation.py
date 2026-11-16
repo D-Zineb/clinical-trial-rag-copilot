@@ -22,7 +22,7 @@ def set_metrics(actual, expected):
 
 
 def reference_query(kind, entities):
-    """OR within entity categories; AND across categories; same arm for drug/gene.
+    """Explicit all/any within categories; AND across categories; gene on requested drug.
 
     Deliberately independent of production branch selection and LIMIT behavior.
     Demographics are rejected until their intended eligibility semantics are defined.
@@ -30,18 +30,22 @@ def reference_query(kind, entities):
     if any(entities.get(key) is not None for key in ('min_age', 'max_age', 'sex')):
         raise ValueError('Demographic reference semantics are not yet defined')
     if kind == 'trial':
-        query = '''MATCH (t:Trial)
-        WHERE (size($drugs) = 0 AND size($genes) = 0 OR EXISTS {
+        query = """MATCH (t:Trial)
+        WHERE (size($drugs) = 0 OR ALL(name IN $drugs WHERE EXISTS {
             MATCH (t)-[:HAS_ARM]->(:ArmGroup)-[:ADMINISTERS]->(d:Drug)
-            WHERE (size($drugs) = 0 OR d.name IN $drugs)
-              AND (size($genes) = 0 OR EXISTS {
-                  MATCH (d)-[:INHIBITS]->(g:Gene) WHERE g.symbol IN $genes
-              })
-        })
-        AND (size($conditions) = 0 OR EXISTS {
-            MATCH (t)-[:TARGETS_CONDITION]->(c:Condition) WHERE c.name IN $conditions
-        })
-        RETURN DISTINCT t.nct_id AS id'''
+            WHERE d.name = name
+        }))
+        AND (size($genes) = 0 OR ALL(symbol IN $genes WHERE EXISTS {
+            MATCH (t)-[:HAS_ARM]->(:ArmGroup)-[:ADMINISTERS]->(d:Drug)-[:HAS_TARGET|INHIBITS]->(g:Gene)
+            WHERE g.symbol = symbol AND (size($drugs) = 0 OR d.name IN $drugs)
+        }))
+        AND (size($conditions) = 0 OR ALL(name IN $conditions WHERE EXISTS {
+            MATCH (t)-[:TARGETS_CONDITION]->(c:Condition) WHERE c.name = name
+        }))
+        RETURN DISTINCT t.nct_id AS id"""
+        for field, variable in [('drugs', 'name'), ('genes', 'symbol'), ('conditions', 'name')]:
+            if entities.get('operators', {}).get(field) == 'any':
+                query = query.replace(f'ALL({variable} IN ${field}', f'ANY({variable} IN ${field}')
         if entities.get('adverse_events'):
             raise ValueError('Trial adverse-event reference path is not defined')
     elif kind == 'paper':
@@ -53,7 +57,8 @@ def reference_query(kind, entities):
             ('genes', 'STUDIES_GENE', 'Gene', 'symbol'),
             ('adverse_events', 'REPORTS_ADVERSE_EVENT', 'AdverseEvent', 'name'),
         ):
-            clauses.append(f'(size(${field}) = 0 OR EXISTS {{ MATCH (p)-[:{relation}]->(n:{label}) WHERE n.{prop} IN ${field} }})')
+            quantifier = 'ANY' if entities.get('operators', {}).get(field) == 'any' else 'ALL'
+            clauses.append(f'(size(${field}) = 0 OR {quantifier}(value IN ${field} WHERE EXISTS {{ MATCH (p)-[:{relation}]->(n:{label}) WHERE n.{prop} = value }}))')
         query = 'MATCH (p:Paper) WHERE ' + ' AND '.join(clauses) + ' RETURN DISTINCT p.pmid AS id'
     else:
         raise ValueError('kind must be trial or paper')
@@ -138,7 +143,7 @@ def main(argv=None):
                       label_type='graph_snapshot_reference; optional reviewed expected_ids',
                       limitations=['Reference paths are not independently verified clinical truth.',
                                    'Graph completeness and source relationship accuracy are not measured.',
-                                   'Production limits can reduce recall; literature is capped at eight.',
+                                   'Explicit diagnostic limits can reduce recall; production scores all graph matches.',
                                    'No relevance ordering: ranking metrics are intentionally omitted.',
                                    'Demographics are unsupported; conditions tested only for trials.'],
                       summary=summary, per_case=rows)
