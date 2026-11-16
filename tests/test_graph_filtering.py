@@ -37,9 +37,45 @@ def test_paper_predicates_filter_before_optional_expansion(entities):
         assert f"MATCH (p)-[:{relation}]->({alias}:{label})" in predicates
         assert f"WHERE {alias}.{prop} IN ${parameter}" in predicates
     assert params == {"aes": entities.adverse_events,
-                      "drugs": entities.drugs, "genes": entities.genes}
+                      "drugs": entities.drugs, "genes": entities.genes, "limit": 15}
 
 
 def test_no_entities_do_not_scan_papers():
     assert capture_query(QueryEntities()) is None
 
+
+
+def test_trial_constraints_are_conjoined_before_distinct_trial_limit():
+    retriever = HybridRetriever.__new__(HybridRetriever)
+    retriever.db = MagicMock(is_connected=True)
+    session = retriever.db.driver.session.return_value.__enter__.return_value
+    session.run.return_value = []
+    retriever.query_graph(QueryEntities(conditions=["Lung Cancer"], genes=["EGFR"], drugs=["Osimertinib"]))
+    query, params = session.run.call_args_list[0].args
+    assert "ALL(symbol IN $genes" in query
+    assert "ALL(name IN $drugs" in query
+    assert "ALL(name IN $conditions" in query
+    assert "WITH DISTINCT t ORDER BY t.nct_id LIMIT $limit" in query
+    assert params["conditions"] == ["Lung Cancer"]
+
+
+def test_condition_only_trial_discovery():
+    retriever = HybridRetriever.__new__(HybridRetriever)
+    retriever.db = MagicMock(is_connected=True)
+    session = retriever.db.driver.session.return_value.__enter__.return_value
+    session.run.return_value = []
+    retriever.query_graph(QueryEntities(conditions=["Lung Cancer"]))
+    assert session.run.call_count == 1
+    assert "MATCH (t:Trial)" in session.run.call_args.args[0]
+
+
+def test_missing_safety_node_does_not_drop_requested_constraint():
+    from clinical_trial_rag_copilot.retrieval.hybrid_search import ClinicalEntityExtractor
+    extractor = ClinicalEntityExtractor.__new__(ClinicalEntityExtractor)
+    extractor.known_genes = {"EGFR"}
+    extractor.known_drugs = {"Osimertinib"}
+    extractor.known_conditions = set()
+    extractor.known_aes = set()
+    entities = extractor.extract("Papers about Osimertinib and Pneumonitis")
+    assert entities.adverse_events == ["Pneumonitis"]
+    assert entities.unresolved_terms == ["Pneumonitis"]

@@ -9,6 +9,11 @@ from clinical_trial_rag_copilot.graph.connection import get_db
 from clinical_trial_rag_copilot.observability.tracer import get_recent_traces
 from clinical_trial_rag_copilot.retrieval.vector_store import LocalVectorStore, PineconeVectorStore, get_vector_store
 
+from clinical_trial_rag_copilot.retrieval.trial_matching import (
+    MatchRequest, MatchResponse, match_candidates,
+)
+from clinical_trial_rag_copilot.data.storage import load_dataset
+
 app = FastAPI(
     title="Oncology Clinical Trial & Pharmacology GraphRAG API",
     description=(
@@ -164,3 +169,18 @@ def verify_answer(request: GuardrailVerifyRequest):
 def get_traces(limit: int = 10):
     """Retrieve recent telemetry traces and latency breakdowns."""
     return get_recent_traces(limit=limit)
+
+
+# Explicit experimental mode; existing question answering remains available.
+
+
+@app.post("/api/v1/match", response_model=MatchResponse, tags=["Trial Matching"])
+def match_patient(request: MatchRequest):
+    """Retrieve trial candidates and return source-backed criterion review."""
+    if not request.patient.summary.strip():
+        raise HTTPException(status_code=400, detail="Patient summary cannot be empty.")
+    from clinical_trial_rag_copilot.retrieval.hybrid_search import HybridRetriever
+    return match_candidates(
+        request, HybridRetriever(vector_store=get_vector_store_instance()),
+        load_dataset("oncology_trials.json"),
+    )

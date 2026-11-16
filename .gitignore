@@ -35,6 +35,7 @@ Thumbs.db
 # Generated source datasets, logs, traces and embedding caches.
 /src/clinical_trial_rag_copilot/data/output/
 /data/
+/docs/
 *.log
 *.npy
 *.npz

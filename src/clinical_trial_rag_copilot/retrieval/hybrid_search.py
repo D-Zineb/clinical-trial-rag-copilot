@@ -18,6 +18,7 @@ class QueryEntities(BaseModel):
     min_age: Optional[float] = None
     max_age: Optional[float] = None
     sex: Optional[str] = None
+    unresolved_terms: List[str] = Field(default_factory=list)
 
 
 class GraphCandidate(BaseModel):
@@ -38,6 +39,7 @@ class HybridEvidence(BaseModel):
     fused_ncts: List[str]
     fused_pmids: List[str]
     sibling_chunks: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
+    retrieval_warnings: List[str] = Field(default_factory=list)
 
 
 class ClinicalEntityExtractor:
@@ -104,7 +106,10 @@ class ClinicalEntityExtractor:
                 extracted_conditions.append(c)
 
         # Adverse event matching
-        for ae in self.known_aes:
+        # Keep recognized safety terms even when ingestion has no such node.
+        # Dropping a missing constraint would silently broaden the query.
+        safety_terms = self.known_aes | {"Pneumonitis", "QT Prolongation", "Diarrhea", "Skin Rash", "Neutropenia"}
+        for ae in safety_terms:
             if re.search(r"\b" + re.escape(ae.lower()) + r"\b", q_lower):
                 extracted_aes.append(ae)
 
@@ -137,6 +142,7 @@ class ClinicalEntityExtractor:
             min_age=min_age,
             max_age=max_age,
             sex=sex,
+            unresolved_terms=sorted(ae for ae in extracted_aes if ae not in self.known_aes),
         )
 
 
@@ -159,54 +165,39 @@ class HybridRetriever:
 
         try:
             with self.db.driver.session() as session:
-                # Query Path 1: Gene -> Drug -> Arm -> Trial
-                if entities.genes:
-                    query_gene = """
-                    MATCH (t:Trial)-[:HAS_ARM]->(a:ArmGroup)-[:ADMINISTERS]->(d:Drug)-[r:INHIBITS]->(g:Gene)
-                    WHERE g.symbol IN $genes
+                # Conjoin requested categories before selecting unique trials.
+                # These are discovery links, not patient eligibility predicates.
+                if entities.genes or entities.drugs or entities.conditions:
+                    query_trials = """
+                    MATCH (t:Trial)
+                    WHERE (size($genes) = 0 OR ALL(symbol IN $genes WHERE EXISTS {
+                        MATCH (t)-[:HAS_ARM]->(:ArmGroup)-[:ADMINISTERS]->(d:Drug)-[:INHIBITS]->(g:Gene)
+                        WHERE g.symbol = symbol AND (size($drugs) = 0 OR d.name IN $drugs)
+                    }))
+                      AND (size($drugs) = 0 OR ALL(name IN $drugs WHERE EXISTS {
+                        MATCH (t)-[:HAS_ARM]->(:ArmGroup)-[:ADMINISTERS]->(d:Drug)
+                        WHERE d.name = name
+                    }))
+                      AND (size($conditions) = 0 OR ALL(name IN $conditions WHERE EXISTS {
+                        MATCH (t)-[:TARGETS_CONDITION]->(c:Condition)
+                        WHERE c.name = name
+                    }))
+                    WITH DISTINCT t ORDER BY t.nct_id LIMIT $limit
                     OPTIONAL MATCH (t)-[:TARGETS_CONDITION]->(c:Condition)
-                    RETURN t.nct_id AS nct_id, t.brief_title AS title, t.phase AS phase,
-                           t.min_age_years AS min_age, t.max_age_years AS max_age, t.sex AS sex,
-                           a.label AS arm_label, a.type AS arm_type, d.name AS drug_name,
-                           g.symbol AS gene_symbol, collect(DISTINCT c.name)[..3] AS conditions
-                    LIMIT $limit
+                    RETURN t.nct_id AS nct_id, t.brief_title AS title,
+                           t.phase AS phase, collect(DISTINCT c.name) AS conditions
+                    ORDER BY nct_id
                     """
-                    res = session.run(query_gene, {"genes": entities.genes, "limit": limit})
-                    for record in res:
+                    for record in session.run(query_trials, {
+                        "genes": entities.genes, "drugs": entities.drugs,
+                        "conditions": entities.conditions, "limit": limit,
+                    }):
                         graph_results.append({
-                            "source": "GRAPH_GENE_PATHWAY",
-                            "nct_id": record["nct_id"],
-                            "title": record["title"],
-                            "arm": record["arm_label"],
-                            "arm_type": record["arm_type"],
-                            "drug": record["drug_name"],
-                            "gene": record["gene_symbol"],
-                            "min_age": record["min_age"],
-                            "max_age": record["max_age"],
-                            "conditions": record["conditions"],
-                        })
-
-                # Query Path 2: Drug -> Trial with Study Arms
-                if entities.drugs and not graph_results:
-                    query_drug = """
-                    MATCH (t:Trial)-[:HAS_ARM]->(a:ArmGroup)-[:ADMINISTERS]->(d:Drug)
-                    WHERE d.name IN $drugs
-                    OPTIONAL MATCH (d)-[:INHIBITS]->(g:Gene)
-                    RETURN t.nct_id AS nct_id, t.brief_title AS title, t.phase AS phase,
-                           a.label AS arm_label, a.type AS arm_type, d.name AS drug_name,
-                           collect(DISTINCT g.symbol)[..3] AS target_genes
-                    LIMIT $limit
-                    """
-                    res = session.run(query_drug, {"drugs": entities.drugs, "limit": limit})
-                    for record in res:
-                        graph_results.append({
-                            "source": "GRAPH_DRUG_PATHWAY",
-                            "nct_id": record["nct_id"],
-                            "title": record["title"],
-                            "arm": record["arm_label"],
-                            "arm_type": record["arm_type"],
-                            "drug": record["drug_name"],
-                            "target_genes": record["target_genes"],
+                            "source": "GRAPH_TRIAL_CONSTRAINTS",
+                            "nct_id": record["nct_id"], "title": record["title"],
+                            "phase": record["phase"], "conditions": record["conditions"],
+                            "matched_constraints": entities.model_dump(),
+                            "eligibility_assessed": False,
                         })
 
                 # Query Path 3: Adverse Events & Literature Cross-Links
@@ -233,14 +224,15 @@ class HybridRetriever:
                            collect(DISTINCT ae.name) AS adverse_events,
                            collect(DISTINCT d.name)[..4] AS cited_drugs,
                            collect(DISTINCT g.symbol)[..4] AS studied_genes
-                    LIMIT 8
+                    ORDER BY pmid
+                    LIMIT $limit
                     """
                     res = session.run(
                         query_lit,
                         {
                             "aes": entities.adverse_events,
                             "drugs": entities.drugs,
-                            "genes": entities.genes,
+                            "genes": entities.genes, "limit": limit,
                         },
                     )
                     for record in res:
@@ -261,9 +253,18 @@ class HybridRetriever:
         return graph_results
 
     def retrieve(self, query: str, top_k: int = 8) -> HybridEvidence:
-        """Perform hybrid retrieval using Reciprocal Rank Fusion across Graph and Vector indices."""
+        """Retrieve ranked dense evidence with supplemental graph discoveries."""
         # 1. Extract entities
         entities = self.extractor.extract(query)
+
+        warnings = [
+            "Graph vocabulary matching is incomplete; unresolved query terms remain in dense search.",
+            "Drug-target and publication-mention links do not establish patient eligibility or therapeutic effect.",
+        ]
+        if entities.min_age is not None or entities.max_age is not None or entities.sex:
+            warnings.append("Demographic constraints are not enforced by graph discovery; review source eligibility.")
+        if entities.unresolved_terms:
+            warnings.append("Recognized terms absent from graph vocabulary: " + ", ".join(entities.unresolved_terms))
 
         # 2. Query Knowledge Graph
         graph_items = self.query_graph(entities, limit=top_k * 2)
@@ -271,42 +272,16 @@ class HybridRetriever:
         # 3. Vector Similarity Search
         vector_hits = self.vector_store.search(query, top_k=top_k)
 
-        # 4. Reciprocal Rank Fusion (RRF) for Trials
-        rrf_scores: Dict[str, float] = {}
-        k_constant = 60.0
-
-        # Score graph trial candidates
-        seen_graph_ncts = set()
-        graph_rank = 1
-        for item in graph_items:
-            nct = item.get("nct_id")
-            if nct and nct not in seen_graph_ncts:
-                seen_graph_ncts.add(nct)
-                rrf_scores[nct] = rrf_scores.get(nct, 0.0) + (1.0 / (k_constant + graph_rank))
-                graph_rank += 1
-
-        # Score vector trial candidates
-        vec_rank = 1
-        for hit in vector_hits:
-            doc_id = hit.doc_id
-            if doc_id.startswith("NCT"):
-                rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + (1.0 / (k_constant + vec_rank))
-                vec_rank += 1
-
-        sorted_ncts = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
-
-        # Fuse paper ranks, preserving each source's order rather than sorting IDs.
-        # Each paper gets at most one vote per source.
-        paper_scores: Dict[str, float] = {}
-        paper_lists = [
-            [str(item["pmid"]) for item in graph_items if item.get("pmid")],
-            [hit.doc_id for hit in vector_hits
-             if hit.chunk_type == "LITERATURE_ABSTRACT" and hit.doc_id],
-        ]
-        for paper_list in paper_lists:
-            for rank, pmid in enumerate(dict.fromkeys(paper_list), start=1):
-                paper_scores[pmid] = paper_scores.get(pmid, 0.0) + 1.0 / (k_constant + rank)
-        sorted_pmids = sorted(paper_scores, key=paper_scores.get, reverse=True)
+        # Graph rows are an unordered candidate set, not a relevance ranking.
+        # Preserve unique dense document order; append graph-only discoveries.
+        sorted_ncts = list(dict.fromkeys(
+            [h.doc_id for h in vector_hits if h.doc_id.startswith("NCT")]
+            + [item["nct_id"] for item in graph_items if item.get("nct_id")]
+        ))
+        sorted_pmids = list(dict.fromkeys(
+            [h.doc_id for h in vector_hits if h.chunk_type == "LITERATURE_ABSTRACT" and h.doc_id]
+            + [str(item["pmid"]) for item in graph_items if item.get("pmid")]
+        ))
 
         # Sibling Chunk Expansion: Pull companion chunks (Overview, Inclusion, Exclusion) for top winning trials
         sibling_chunks: Dict[str, List[Dict[str, Any]]] = {}
@@ -321,6 +296,7 @@ class HybridRetriever:
             fused_ncts=sorted_ncts[:top_k],
             fused_pmids=sorted_pmids[:top_k],
             sibling_chunks=sibling_chunks,
+            retrieval_warnings=warnings,
         )
 
 
@@ -345,5 +321,5 @@ if __name__ == "__main__":
     for v in evidence.vector_evidence[:3]:
         logger.info("  [%s] Score=%.4f | Doc=%s", v.chunk_type, v.score, v.doc_id)
 
-    logger.info("Fused ranked NCTs (RRF): %s", evidence.fused_ncts)
-    logger.info("Fused PMIDs: %s", evidence.fused_pmids)
+    logger.info("Ranked trial candidates: %s", evidence.fused_ncts)
+    logger.info("Ranked paper candidates: %s", evidence.fused_pmids)

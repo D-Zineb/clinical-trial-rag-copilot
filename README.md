@@ -1,5 +1,13 @@
 # Oncology Clinical Trial & Pharmacology GraphRAG Copilot
 
+## Experimental trial criterion review
+
+The existing query route remains available. `POST /api/v1/match` adds explicit
+patient-to-trial discovery with source eligibility sections and unknown handling.
+See [usage and validation](docs/design/criterion-review-usage.md) and the
+[GraphRAG design](docs/design/oncology-graphrag.md). This first implementation does
+not produce a trial-level eligibility verdict.
+
 ## Dataset change: oncology
 
 The existing architecture is retained: ClinicalTrials.gov, PubMed and MyChem acquisition;
