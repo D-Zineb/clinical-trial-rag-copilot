@@ -240,16 +240,17 @@ def parse_study(study_data: Dict[str, Any]) -> Optional[ClinicalTrial]:
     )
 
 
-def fetch_cardiology_trials(
-    condition: str = "Arrhythmia OR \"Atrial Fibrillation\" OR \"Heart Failure\"",
+def fetch_oncology_trials(
+    condition: str = '"Non-Small Cell Lung Cancer" OR "Lung Adenocarcinoma"',
     target_count: int = 1000,
     page_size: int = 100,
     min_date: Optional[str] = "2024-06-01",
+    search_term: Optional[str] = 'EGFR OR "epidermal growth factor receptor"',
 ) -> List[ClinicalTrial]:
     """Fetch clinical trials with pagination from ClinicalTrials.gov v2 API.
     
     If min_date is provided (default: 2024-06-01), fetches only trials updated after that date
-    to guarantee zero LLM pre-training data contamination.
+    to define a reproducible date window; this does not establish model-training novelty.
     """
     date_msg = f" (Updated >= {min_date})" if min_date else ""
     print(f"Fetching trials for condition: {condition}{date_msg} (Target: {target_count})...")
@@ -263,6 +264,8 @@ def fetch_cardiology_trials(
             "format": "json",
             "countTotal": "true",
         }
+        if search_term:
+            params["query.term"] = search_term
         if min_date:
             params["filter.advanced"] = f"AREA[LastUpdatePostDate]RANGE[{min_date},MAX]"
         if next_page_token:

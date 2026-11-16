@@ -10,7 +10,7 @@ from clinical_trial_rag_copilot.retrieval.chunking import (
 def sample_trial():
     return {
         "nct_id": "NCT05543278",
-        "brief_title": "Pragmatic Amiodarone Trial to Reduce Postoperative Atrial Fibrillation",
+        "brief_title": "Pragmatic Osimertinib Trial to Reduce Postoperative Non-Small Cell Lung Cancer",
         "phase": "PHASE3",
         "overall_status": "RECRUITING",
         "sex": "ALL",
@@ -18,12 +18,12 @@ def sample_trial():
         "max_age_years": -1.0,
         "minimum_age": "18 Years",
         "maximum_age": None,
-        "conditions": ["Atrial Fibrillation", "Cardiac Surgery"],
-        "intervention_names": ["Amiodarone"],
-        "brief_summary": "Evaluating prophylactic oral amiodarone in patients undergoing surgery.",
+        "conditions": ["Non-Small Cell Lung Cancer", "Cardiac Surgery"],
+        "intervention_names": ["Osimertinib"],
+        "brief_summary": "Evaluating prophylactic oral osimertinib in patients undergoing surgery.",
         "inclusion_criteria": "Patients undergoing planned cardiac surgery aged 18 or older.",
         "exclusion_criteria": "Preoperative baseline bradycardia under 50 bpm or severe pulmonary disease.",
-        "primary_outcome_measures": ["Incidence of postoperative atrial fibrillation"],
+        "primary_outcome_measures": ["Incidence of postoperative non-small cell lung cancer"],
     }
 
 
@@ -33,7 +33,7 @@ def sample_paper():
         "pmid": "40159403",
         "title": "Practical compendium of antiarrhythmic drugs in clinical cardiology.",
         "year": 2025,
-        "abstract": "The European Heart Rhythm Association presents guidelines for antiarrhythmic therapy, focusing on KCNH2 potassium channel inhibition and QT prolongation risks.",
+        "abstract": "The European Heart Rhythm Association presents guidelines for antiarrhythmic therapy, focusing on EGFR potassium channel inhibition and QT prolongation risks.",
         "mesh_terms": ["Arrhythmias, Cardiac", "Anti-Arrhythmia Agents", "Long QT Syndrome"],
     }
 
@@ -47,7 +47,7 @@ def test_create_trial_chunks(sample_trial):
     assert types == {"TRIAL_OVERVIEW", "TRIAL_INCLUSION", "TRIAL_EXCLUSION"}
 
     overview = next(c for c in chunks if c.chunk_type == "TRIAL_OVERVIEW")
-    assert "Amiodarone" in overview.text
+    assert "Osimertinib" in overview.text
     assert overview.metadata["nct_id"] == "NCT05543278"
     assert overview.metadata["min_age_years"] == 18.0
 
@@ -65,7 +65,7 @@ def test_create_literature_chunk(sample_paper):
     assert chunk.chunk_type == "LITERATURE_ABSTRACT"
     assert chunk.doc_id == "40159403"
     assert chunk.metadata["year"] == 2025
-    assert "KCNH2" in chunk.text
+    assert "EGFR" in chunk.text
 
 
 def test_build_all_chunks(sample_trial, sample_paper):

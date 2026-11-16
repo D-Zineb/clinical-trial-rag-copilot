@@ -21,22 +21,22 @@ def test_vector_store_build_and_search(temp_store_dir):
             chunk_id="NCT1_OVERVIEW",
             chunk_type="TRIAL_OVERVIEW",
             doc_id="NCT00000001",
-            text="Amiodarone oral therapy for paroxysmal atrial fibrillation in elderly adults.",
-            metadata={"nct_id": "NCT00000001", "drug": "Amiodarone", "min_age_years": 65.0},
+            text="Osimertinib oral therapy for paroxysmal non-small cell lung cancer in elderly adults.",
+            metadata={"nct_id": "NCT00000001", "drug": "Osimertinib", "min_age_years": 65.0},
         ),
         DocumentChunk(
             chunk_id="NCT2_OVERVIEW",
             chunk_type="TRIAL_OVERVIEW",
             doc_id="NCT00000002",
-            text="Spironolactone in chronic systolic heart failure with reduced ejection fraction.",
-            metadata={"nct_id": "NCT00000002", "drug": "Spironolactone", "min_age_years": 18.0},
+            text="Afatinib in chronic systolic heart failure with reduced ejection fraction.",
+            metadata={"nct_id": "NCT00000002", "drug": "Afatinib", "min_age_years": 18.0},
         ),
         DocumentChunk(
             chunk_id="PMID1_ABSTRACT",
             chunk_type="LITERATURE_ABSTRACT",
             doc_id="11111111",
-            text="KCNH2 potassium channel blockade induces action potential duration prolongation and torsades.",
-            metadata={"pmid": "11111111", "gene": "KCNH2"},
+            text="EGFR potassium channel blockade induces action potential duration prolongation and torsades.",
+            metadata={"pmid": "11111111", "gene": "EGFR"},
         ),
     ]
 
@@ -49,8 +49,8 @@ def test_vector_store_build_and_search(temp_store_dir):
     assert store.vectors.shape[0] == 3
     assert store.vectors.shape[1] <= 64
 
-    # Search test 1: Amiodarone query
-    hits = store.search("Amiodarone atrial fibrillation", top_k=1)
+    # Search test 1: Osimertinib query
+    hits = store.search("Osimertinib non-small cell lung cancer", top_k=1)
     assert len(hits) == 1
     assert hits[0].doc_id == "NCT00000001"
     assert hits[0].score > 0.3
@@ -77,7 +77,7 @@ def test_vector_store_persistence(temp_store_dir):
             chunk_id="C1",
             chunk_type="TRIAL_OVERVIEW",
             doc_id="NCT100",
-            text="Vericiguat stimulator of soluble guanylate cyclase.",
+            text="Gefitinib stimulator of soluble guanylate cyclase.",
             metadata={"nct_id": "NCT100"},
         )
     ]
@@ -91,6 +91,6 @@ def test_vector_store_persistence(temp_store_dir):
 
     assert len(store2.chunks) == 1
     assert store2.chunks[0]["doc_id"] == "NCT100"
-    hits = store2.search("Vericiguat", top_k=1)
+    hits = store2.search("Gefitinib", top_k=1)
     assert len(hits) == 1
     assert hits[0].doc_id == "NCT100"

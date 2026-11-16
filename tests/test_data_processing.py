@@ -7,10 +7,10 @@ from clinical_trial_rag_copilot.graph.ingest import clean_drug_name as clean_gra
 @pytest.mark.parametrize("clean_drug_name", [clean_drug_name, clean_graph_drug_name])
 def test_clean_drug_name(clean_drug_name):
     """Verify pharmaceutical drug name cleaning strips formulations, dosages, and noise."""
-    assert clean_drug_name("Amiodarone Hydrochloride 200 mg") == "Amiodarone"
-    assert clean_drug_name("Metoprolol Succinate Oral Tablet 50mg") == "Metoprolol"
-    assert clean_drug_name("Spironolactone 25 mg oral tablet") == "Spironolactone"
-    assert clean_drug_name("Vericiguat (Verquvo)") == "Vericiguat"
+    assert clean_drug_name("Osimertinib Hydrochloride 200 mg") == "Osimertinib"
+    assert clean_drug_name("Erlotinib Succinate Oral Tablet 50mg") == "Erlotinib"
+    assert clean_drug_name("Afatinib 25 mg oral tablet") == "Afatinib"
+    assert clean_drug_name("Gefitinib (Verquvo)") == "Gefitinib"
     assert clean_drug_name("Placebo oral tablet") == "Placebo"
 
 
@@ -30,7 +30,7 @@ def test_split_eligibility_criteria():
     sample_criteria = (
         "Inclusion Criteria:\n"
         "1. Age >= 18 years\n"
-        "2. Documented paroxysmal atrial fibrillation\n\n"
+        "2. Documented paroxysmal non-small cell lung cancer\n\n"
         "Exclusion Criteria:\n"
         "1. Severe renal impairment (eGFR < 30)\n"
         "2. Prior cardiac ablation within 30 days\n"
@@ -40,7 +40,7 @@ def test_split_eligibility_criteria():
 
     assert incl is not None
     assert "Age >= 18 years" in incl
-    assert "paroxysmal atrial fibrillation" in incl
+    assert "paroxysmal non-small cell lung cancer" in incl
 
     assert excl is not None
     assert "Severe renal impairment" in excl
@@ -59,3 +59,10 @@ def test_split_criteria_missing_exclusion():
 def test_graph_drug_name_missing():
     assert clean_graph_drug_name(None) == ""
     assert clean_graph_drug_name("") == ""
+
+
+@pytest.mark.parametrize("clean_drug_name", [clean_drug_name, clean_graph_drug_name])
+def test_arm_reference_prefix_joins_the_same_drug_as_target_records(clean_drug_name):
+    assert clean_drug_name('Drug: Osimertinib') == clean_drug_name('Osimertinib')
+    assert clean_drug_name('drug: Erlotinib 150 mg') == 'Erlotinib'
+    assert clean_drug_name('Biological: Pembrolizumab') == 'Pembrolizumab'

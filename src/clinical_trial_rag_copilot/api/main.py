@@ -10,7 +10,7 @@ from clinical_trial_rag_copilot.observability.tracer import get_recent_traces
 from clinical_trial_rag_copilot.retrieval.vector_store import LocalVectorStore, PineconeVectorStore, get_vector_store
 
 app = FastAPI(
-    title="Cardiology Clinical Trial & Pharmacology GraphRAG API",
+    title="Oncology Clinical Trial & Pharmacology GraphRAG API",
     description=(
         "Production-grade asynchronous REST API for dual-indexed multi-hop "
         "clinical trial and pharmacology question answering with Self-RAG guardrails."
@@ -62,8 +62,8 @@ def get_vector_store_instance() -> LocalVectorStore | PineconeVectorStore:
 class QueryRequest(BaseModel):
     query: str = Field(
         ...,
-        description="Clinician inquiry regarding cardiology trials or pharmacology.",
-        json_schema_extra={"example": "Which clinical trials evaluate Amiodarone targeting KCNH2 in Atrial Fibrillation?"},
+        description="Clinician inquiry regarding oncology trials or pharmacology.",
+        json_schema_extra={"example": "Which clinical trials evaluate Osimertinib targeting EGFR in Non-Small Cell Lung Cancer?"},
     )
     top_k: int = Field(default=6, ge=1, le=20, description="Number of top candidates to retrieve.")
 

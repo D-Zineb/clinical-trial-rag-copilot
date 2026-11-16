@@ -37,8 +37,8 @@ class GraphFactualityGuardrail:
                 res_genes = session.run("MATCH (g:Gene) RETURN toLower(g.symbol) AS gene, g.symbol AS original")
                 self.gene_map = {r["gene"]: r["original"] for r in res_genes}
         except Exception:
-            self.drug_map = {"amiodarone": "Amiodarone", "metoprolol": "Metoprolol", "spironolactone": "Spironolactone"}
-            self.gene_map = {"kcnh2": "KCNH2", "herg": "HERG", "scn5a": "SCN5A"}
+            self.drug_map = {"osimertinib": "Osimertinib", "erlotinib": "Erlotinib", "afatinib": "Afatinib"}
+            self.gene_map = {"egfr": "EGFR", "herg": "HERG", "scn5a": "SCN5A"}
 
     def extract_claimed_entities(self, text: str) -> Tuple[Set[str], Set[str], Set[str], Set[str]]:
         """Extract drugs, genes, NCT IDs, and PMIDs cited in the generated answer."""
@@ -170,8 +170,8 @@ if __name__ == "__main__":
     guardrail = GraphFactualityGuardrail()
 
     test_response = (
-        "In clinical trial NCT05543278, Amiodarone was administered to patients undergoing cardiac surgery. "
-        "Amiodarone is known to inhibit KCNH2 potassium channels, potentially causing QT prolongation. "
+        "In clinical trial NCT05543278, Osimertinib was administered to patients undergoing cardiac surgery. "
+        "Osimertinib is known to inhibit EGFR potassium channels, potentially causing QT prolongation. "
         "However, trial NCT99999999 also tested a similar mechanism."
     )
 

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DATA_DIR = Path(__file__).resolve().parent / "output"
-DATASETS = {"cardiology_trials.json", "pubmed_cardiology_literature.json",
+DATASETS = {"oncology_trials.json", "pubmed_oncology_literature.json",
             "drug_targets_pharmacology.json"}
 
 

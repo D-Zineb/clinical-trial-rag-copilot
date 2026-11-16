@@ -6,8 +6,8 @@ from clinical_trial_rag_copilot.agent.copilot import ClinicalGraphRAGCopilot
 from clinical_trial_rag_copilot.graph.connection import get_db
 
 st.set_page_config(
-    page_title="Cardiology Clinical Trial & Pharmacology GraphRAG",
-    page_icon="🫀",
+    page_title="Oncology Clinical Trial & Pharmacology GraphRAG",
+    page_icon="🔬",
     layout="wide",
 )
 
@@ -69,7 +69,7 @@ def get_graph_stats():
 
 
 # Header
-st.title("🫀 Cardiology Clinical Trial & Pharmacology GraphRAG Copilot")
+st.title("🔬 Oncology Clinical Trial & Pharmacology GraphRAG Copilot")
 st.caption("Dual-Indexed (Neo4j AuraDB + Pinecone Vector) Multi-Hop Assistant | Post-Cutoff >= June 2024")
 
 # Sidebar
@@ -118,10 +118,10 @@ col_samples, col_input = st.columns([1, 2])
 with col_samples:
     st.subheader("💡 Sample Clinical Inquiries")
     sample_queries = [
-        "Which clinical trials evaluate Amiodarone targeting KCNH2 in patients with Atrial Fibrillation?",
-        "What study arms test Vericiguat and what are the primary endpoints and age criteria?",
-        "What research papers report QT Prolongation or Torsades de Pointes for antiarrhythmic drugs?",
-        "Find heart failure trials for elderly patients (aged >= 65) testing mineralocorticoid receptor blockers.",
+        "Which clinical trials evaluate Osimertinib targeting EGFR in patients with Non-Small Cell Lung Cancer?",
+        "What study arms test Gefitinib in lung cancer and what are the primary endpoints?",
+        "What research papers report resistance or adverse effects for EGFR-targeted lung cancer drugs?",
+        "Find lung cancer trials testing Erlotinib or Afatinib.",
     ]
     selected_sample = st.radio("Select a pre-configured clinical scenario:", sample_queries)
 

@@ -50,10 +50,10 @@ class ClinicalEntityExtractor:
     def _load_vocabularies(self):
         """Cache known entity names from Neo4j AuraDB for sub-millisecond matching."""
         if not self.db.is_connected:
-            self.known_genes = {"KCNH2", "HERG", "SCN5A", "CACNA1C", "ADRB1", "NR3C2"}
-            self.known_conditions = {"Atrial Fibrillation", "Heart Failure", "Arrhythmia", "Long QT Syndrome"}
-            self.known_drugs = {"Amiodarone", "Metoprolol", "Flecainide", "Sotalol", "Spironolactone", "Vericiguat"}
-            self.known_aes = {"QT Prolongation", "Torsades De Pointes", "Cardiotoxicity", "Death, Sudden, Cardiac"}
+            self.known_genes = {"EGFR", "ERBB2", "KRAS", "ALK", "BRAF", "MET"}
+            self.known_conditions = {"Non-Small Cell Lung Cancer", "Lung Adenocarcinoma", "Lung Cancer"}
+            self.known_drugs = {"Osimertinib", "Erlotinib", "Gefitinib", "Afatinib", "Amivantamab", "Pembrolizumab"}
+            self.known_aes = {"Pneumonitis", "Diarrhea", "Skin Rash", "Neutropenia"}
             return
 
         try:
@@ -75,10 +75,10 @@ class ClinicalEntityExtractor:
                 self.known_aes = {r["name"] for r in res_aes if r["name"]}
         except Exception as e:
             logger.warning("Could not query Neo4j for vocabulary: %s — using static fallback.", e)
-            self.known_genes = {"KCNH2", "HERG", "SCN5A", "CACNA1C", "ADRB1", "NR3C2"}
-            self.known_conditions = {"Atrial Fibrillation", "Heart Failure", "Arrhythmia", "Long QT Syndrome"}
-            self.known_drugs = {"Amiodarone", "Metoprolol", "Flecainide", "Sotalol", "Spironolactone", "Vericiguat"}
-            self.known_aes = {"QT Prolongation", "Torsades De Pointes", "Cardiotoxicity", "Death, Sudden, Cardiac"}
+            self.known_genes = {"EGFR", "ERBB2", "KRAS", "ALK", "BRAF", "MET"}
+            self.known_conditions = {"Non-Small Cell Lung Cancer", "Lung Adenocarcinoma", "Lung Cancer"}
+            self.known_drugs = {"Osimertinib", "Erlotinib", "Gefitinib", "Afatinib", "Amivantamab", "Pembrolizumab"}
+            self.known_aes = {"Pneumonitis", "Diarrhea", "Skin Rash", "Neutropenia"}
 
     def extract(self, query: str) -> QueryEntities:
         """Extract clinical entities and demographic constraints from free text."""
@@ -327,7 +327,7 @@ class HybridRetriever:
 if __name__ == "__main__":
     retriever = HybridRetriever()
 
-    test_q = "What clinical trials test Amiodarone targeting KCNH2 in patients with Atrial Fibrillation?"
+    test_q = "What clinical trials test Osimertinib targeting EGFR in patients with Non-Small Cell Lung Cancer?"
     logger.info("Test hybrid retrieval query: %s", test_q)
     evidence = retriever.retrieve(test_q, top_k=5)
 

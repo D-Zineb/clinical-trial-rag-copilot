@@ -18,7 +18,7 @@ def isolated_api(tmp_path, monkeypatch):
     store.build_index([DocumentChunk(
         chunk_id="NCT05543278_OVERVIEW", doc_id="NCT05543278",
         chunk_type="TRIAL_OVERVIEW",
-        text="Amiodarone targeting KCNH2 in atrial fibrillation clinical trials.",
+        text="Osimertinib targeting EGFR in non-small cell lung cancer clinical trials.",
         metadata={"nct_id": "NCT05543278"},
     )], provider=LocalTfIdfEmbeddingProvider())
     monkeypatch.setattr(api, "_vector_store", store)
@@ -43,7 +43,7 @@ def test_api_health_check():
 def test_api_query_endpoint():
     """Verify end-to-end GraphRAG query endpoint returns answer and telemetry trace."""
     payload = {
-        "query": "Which clinical trials evaluate Amiodarone targeting KCNH2 in Atrial Fibrillation?",
+        "query": "Which clinical trials evaluate Osimertinib targeting EGFR in Non-Small Cell Lung Cancer?",
         "top_k": 3,
     }
     response = client.post("/api/v1/query", json=payload)
@@ -61,7 +61,7 @@ def test_api_query_endpoint():
 def test_api_guardrail_verify_endpoint():
     """Verify standalone guardrail factuality audit endpoint."""
     payload = {
-        "text": "Trial NCT05543278 tested Amiodarone on KCNH2 potassium channels."
+        "text": "Trial NCT05543278 tested Osimertinib on EGFR potassium channels."
     }
     response = client.post("/api/v1/guardrail/verify", json=payload)
     assert response.status_code == 200

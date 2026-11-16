@@ -1,4 +1,28 @@
-# 🫀 Cardiology Clinical Trial & Pharmacology GraphRAG Copilot
+# Oncology Clinical Trial & Pharmacology GraphRAG Copilot
+
+## Dataset change: oncology
+
+The existing architecture is retained: ClinicalTrials.gov, PubMed and MyChem acquisition;
+local/S3 storage; Neo4j; Pinecone; LLM synthesis; guardrails; API and UI. Dependencies,
+Docker files and `.env` variable names are unchanged.
+
+Acquisition now targets **EGFR-related non-small-cell lung cancer and lung adenocarcinoma**.
+It writes `oncology_trials.json`, `pubmed_oncology_literature.json` and
+`drug_targets_pharmacology.json`. The existing graph/vector loaders use these filenames.
+
+```bash
+uv run python -m clinical_trial_rag_copilot.data.run_acquisition
+uv run python -m clinical_trial_rag_copilot.graph.ingest
+uv run python -m clinical_trial_rag_copilot.retrieval.vector_store
+```
+
+These commands write to the destinations selected by your existing configuration.
+No cloud acquisition or ingestion was run as part of this code change. Ingestion is
+additive, so select an appropriate destination before loading a new corpus. Historical
+counts, examples and benchmark target IDs below describe the previous dataset; regenerate
+and review evaluation cases after acquisition. The separate local oncology prototype is
+archived rather than replacing the original pipeline.
+
 
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-REST_API-009688.svg)](https://fastapi.tiangolo.com/)

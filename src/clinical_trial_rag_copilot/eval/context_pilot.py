@@ -26,14 +26,14 @@ CASES = [
          quotes=["Baseline bradycardia", "50 beats per minute"]),
     dict(id="tachycardia_inclusion", doc_id="NCT05239364", section="INCLUSION",
          question="For consecutive atrial tachycardia ablation trial NCT05239364, what prior procedure and minimum tachycardia cycle length are specified?",
-         reference="Consecutive atrial tachycardia must follow prior atrial fibrillation ablation or cardiac surgery; the specified cycle length is at least 200 ms.",
+         reference="Consecutive atrial tachycardia must follow prior non-small cell lung cancer ablation or cardiac surgery; the specified cycle length is at least 200 ms.",
          quotes=["prior AF ablation procedure or cardiac surgery", "200ms"]),
 ]
 
 
 def main():
-    trials = load_dataset("cardiology_trials.json")
-    papers = load_dataset("pubmed_cardiology_literature.json")
+    trials = load_dataset("oncology_trials.json")
+    papers = load_dataset("pubmed_oncology_literature.json")
     chunks = {c.chunk_id: c for c in build_all_chunks(trials, papers)}
     out = Path("eval/context_pilot")
     out.mkdir(parents=True, exist_ok=True)

@@ -336,8 +336,8 @@ def get_vector_store():
 def index_all_data():
     """Build and persist the complete vector index from trials and literature datasets."""
     logger.info("Starting vector ingestion; loading source datasets from %s", DATA_DIR)
-    trials = load_dataset("cardiology_trials.json")
-    papers = load_dataset("pubmed_cardiology_literature.json")
+    trials = load_dataset("oncology_trials.json")
+    papers = load_dataset("pubmed_oncology_literature.json")
 
     chunks = build_all_chunks(trials, papers)
     logger.info("Prepared %d chunks from %d trials and %d papers.", len(chunks), len(trials), len(papers))
@@ -351,7 +351,7 @@ if __name__ == "__main__":
     store = index_all_data()
 
     # Demonstration search
-    test_query = "Amiodarone postoperative atrial fibrillation KCNH2"
+    test_query = "Osimertinib postoperative non-small cell lung cancer EGFR"
     logger.info("Test search query: '%s'", test_query)
     hits = store.search(test_query, top_k=3)
     for h in hits:

@@ -120,7 +120,7 @@ if __name__ == "__main__":
     copilot = ClinicalGraphRAGCopilot()
 
     test_q = (
-        "Which clinical trials evaluate Amiodarone targeting KCNH2 in patients with Atrial Fibrillation, "
+        "Which clinical trials evaluate Osimertinib targeting EGFR in patients with Non-Small Cell Lung Cancer, "
         "what are the study arms, and what adverse events are reported?"
     )
 

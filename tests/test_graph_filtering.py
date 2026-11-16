@@ -17,10 +17,10 @@ def capture_query(entities):
 
 
 @pytest.mark.parametrize("entities", [
-    QueryEntities(genes=["KCNH2"]),
-    QueryEntities(drugs=["Amiodarone"]),
+    QueryEntities(genes=["EGFR"]),
+    QueryEntities(drugs=["Osimertinib"]),
     QueryEntities(adverse_events=["QT Prolongation"]),
-    QueryEntities(genes=["KCNH2"], drugs=["Amiodarone"],
+    QueryEntities(genes=["EGFR"], drugs=["Osimertinib"],
                   adverse_events=["QT Prolongation"]),
 ])
 def test_paper_predicates_filter_before_optional_expansion(entities):

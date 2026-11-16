@@ -1,7 +1,7 @@
 import re
 from typing import List
 
-from clinical_trial_rag_copilot.data.fetch_trials import fetch_cardiology_trials
+from clinical_trial_rag_copilot.data.fetch_trials import fetch_oncology_trials
 from clinical_trial_rag_copilot.data.fetch_drug_targets import fetch_drug_targets
 from clinical_trial_rag_copilot.data.fetch_pubmed import fetch_pubmed_abstracts
 
@@ -10,6 +10,7 @@ from clinical_trial_rag_copilot.data.storage import save_dataset
 
 def clean_drug_name(raw_name: str) -> str:
     """Clean dosage, formulation, and commercial suffixes from drug names."""
+    raw_name = re.sub(r"^(?:drug|biological)\s*:\s*", "", raw_name.strip(), flags=re.I)
     name = re.sub(
         r"(?i)\b(injection|tablet|capsule|oral|infusion|solution|hydrochloride|succinate|tartrate|fumarate|maleate|mesylate|phosphate|sulfate|acetate)\b",
         "",
@@ -59,17 +60,17 @@ def run_full_pipeline(
 ):
     """Orchestrate end-to-end data acquisition for all 3 data sources."""
     print("=" * 60)
-    print("STARTING DATA ACQUISITION PIPELINE (POST-CUTOFF: >= June 2024)")
+    print("STARTING ONCOLOGY DATA ACQUISITION PIPELINE")
     print("=" * 60)
 
     # -------------------------------------------------------------
     # 1. Source 1: Clinical Trials
     # -------------------------------------------------------------
     print(f"\n[STEP 1/3] Fetching Clinical Trials (Target: {trials_target})...")
-    trials = fetch_cardiology_trials(target_count=trials_target, min_date=min_date_trials)
+    trials = fetch_oncology_trials(target_count=trials_target, min_date=min_date_trials)
     trials_json = [t.model_dump() for t in trials]
 
-    destination = save_dataset("cardiology_trials.json", trials_json)
+    destination = save_dataset("oncology_trials.json", trials_json)
     print(f"   [OK] Saved {len(trials_json)} records to {destination}")
 
     # -------------------------------------------------------------
@@ -88,7 +89,7 @@ def run_full_pipeline(
     print(f"\n[STEP 3/3] Fetching PubMed literature (Target: {pubmed_target})...")
     pubmed_articles = fetch_pubmed_abstracts(max_results=pubmed_target, min_date=min_date_pubmed)
 
-    destination = save_dataset("pubmed_cardiology_literature.json", pubmed_articles)
+    destination = save_dataset("pubmed_oncology_literature.json", pubmed_articles)
     print(f"   [OK] Saved {len(pubmed_articles)} records to {destination}")
 
     print("\n" + "=" * 60)

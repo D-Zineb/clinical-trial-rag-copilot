@@ -1,7 +1,13 @@
+# Local configuration and credentials.
 .env
+.env.*
+!.env.example
 *.env
 *.pem
 *.key
+.aws/
+
+# Python environments, caches and packaging output.
 .venv/
 venv/
 env/
@@ -11,21 +17,35 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-*.ipynb
 .ipynb_checkpoints/
+build/
+dist/
+*.egg-info/
+.coverage
+.coverage.*
+htmlcov/
+test-results/
+
+# Editor and operating-system files.
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-*.html
+
+# Generated source datasets, logs, traces and embedding caches.
+/src/clinical_trial_rag_copilot/data/output/
+/data/
 *.log
-*.json
 *.npy
+*.npz
 *.pkl
-# Keep evaluation source and benchmark cases; ignore generated run artifacts.
-/eval/*
-!/eval/README.md
-!/eval/retrieval_cases.jsonl
-!/eval/retrieval_cases_v1_24.jsonl
-!/eval/graph_cases.jsonl
-docs/
+
+# Generated experiments; eval/cases and documentation are versioned.
+/eval/*_runs/
+/eval/runs/
+/eval/results/
+/eval/generated/
+/eval/context_pilot/
+
+# Local historical backup; not part of the current project.
+/archive/

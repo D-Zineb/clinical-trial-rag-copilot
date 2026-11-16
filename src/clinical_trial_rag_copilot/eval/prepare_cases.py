@@ -48,8 +48,8 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--per-kind", type=int, default=20)
     args = parser.parse_args(argv)
-    cases, fingerprint = prepare_cases(load_dataset("cardiology_trials.json"),
-                                      load_dataset("pubmed_cardiology_literature.json"), args.per_kind)
+    cases, fingerprint = prepare_cases(load_dataset("oncology_trials.json"),
+                                      load_dataset("pubmed_oncology_literature.json"), args.per_kind)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     # Exclusive creation protects prior labels and baseline definitions.
     with args.output.open("x", encoding="utf-8") as stream:

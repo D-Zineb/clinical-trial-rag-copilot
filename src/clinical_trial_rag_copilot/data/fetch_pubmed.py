@@ -7,7 +7,7 @@ import requests
 
 DATA_DIR = Path(__file__).resolve().parent / "output"
 
-OUTPUT_FILE = DATA_DIR / "pubmed_cardiology_literature.json"
+OUTPUT_FILE = DATA_DIR / "pubmed_oncology_literature.json"
 
 # NCBI E-utilities base URLs (Free, official PubMed API)
 ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
@@ -16,8 +16,9 @@ EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
 def fetch_pubmed_abstracts(
     query: str = (
-        '(Arrhythmia OR "Atrial Fibrillation" OR "Heart Failure") AND '
-        '("KCNH2" OR "hERG" OR "SCN5A" OR "CACNA1C" OR "QT prolongation" OR "Torsades de Pointes" OR "adverse effect" OR proarrhythmia)'
+        '("Carcinoma, Non-Small-Cell Lung"[MeSH Terms] OR "non-small cell lung cancer" OR "lung adenocarcinoma") AND '
+        '(EGFR OR "epidermal growth factor receptor") AND '
+        '(osimertinib OR erlotinib OR gefitinib OR afatinib OR "targeted therapy" OR resistance OR sensitivity OR biomarker)'
     ),
     max_results: int = 800,
     min_date: Optional[str] = "2024/06/01",
@@ -25,7 +26,7 @@ def fetch_pubmed_abstracts(
     """Fetch PubMed IDs matching query, then download their full abstracts via NCBI API.
     
     If min_date is provided (default: '2024/06/01'), restricts search to papers published
-    after that date to ensure zero LLM pre-training data contamination.
+    after that date to define a reproducible date window, not to guarantee absence from model training.
     """
     full_query = query
     if min_date:

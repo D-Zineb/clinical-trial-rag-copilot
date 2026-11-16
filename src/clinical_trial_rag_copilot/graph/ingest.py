@@ -18,6 +18,7 @@ def clean_drug_name(raw_name: str) -> str:
     """Clean dosage, formulation, and commercial prefixes/suffixes from drug names."""
     if not raw_name:
         return ""
+    raw_name = re.sub(r"^(?:drug|biological)\s*:\s*", "", raw_name.strip(), flags=re.I)
     name = re.sub(
         r"(?i)\b(injection|tablet|capsule|oral|infusion|solution|hydrochloride|succinate|tartrate|fumarate|maleate|mesylate|phosphate|sulfate|acetate)\b",
         "",
@@ -30,7 +31,7 @@ def clean_drug_name(raw_name: str) -> str:
 
 def ingest_trials(batch_size: int = 250):
     """Batch ingest clinical trials, conditions, sponsors, arm groups, and drug links into Neo4j."""
-    trials = load_dataset("cardiology_trials.json")
+    trials = load_dataset("oncology_trials.json")
 
     db = get_db()
     print(f"\n[1/3] Ingesting {len(trials)} Clinical Trials into Neo4j...")
@@ -188,7 +189,7 @@ def ingest_drug_targets(batch_size: int = 100):
 
 def ingest_pubmed_literature(batch_size: int = 200):
     """Ingest PubMed papers, linking them to adverse events, drugs, and target genes."""
-    papers = load_dataset("pubmed_cardiology_literature.json")
+    papers = load_dataset("pubmed_oncology_literature.json")
 
     db = get_db()
     print(f"\n[3/3] Ingesting {len(papers)} PubMed Papers and Safety Links...")
@@ -201,10 +202,10 @@ def ingest_pubmed_literature(batch_size: int = 200):
     drug_pattern = re.compile(r"\b(" + "|".join(map(re.escape, existing_drugs)) + r")\b", re.I) if existing_drugs else None
     gene_pattern = re.compile(r"\b(" + "|".join(map(re.escape, existing_genes)) + r")\b", re.I) if existing_genes else None
 
-    # Key cardiac adverse events to track
+    # Oncology adverse-event terms to track
     adverse_events_whitelist = {
-        "Long QT Syndrome", "Torsades de Pointes", "Death, Sudden, Cardiac",
-        "Arrhythmias, Cardiac", "Ventricular Fibrillation", "Heart Failure"
+        "Pneumonitis", "Diarrhea", "Skin Rash", "Neutropenia",
+        "Drug-Related Side Effects and Adverse Reactions"
     }
 
     records = []

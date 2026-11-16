@@ -1,7 +1,7 @@
 from typing import Any, Dict, List
 from clinical_trial_rag_copilot.retrieval.hybrid_search import HybridEvidence
 
-SYSTEM_PROMPT = """You are an expert Clinical Trials & Pharmacology AI Copilot specializing in cardiology and cardiac electrophysiology.
+SYSTEM_PROMPT = """You are an expert Clinical Trials & Pharmacology AI Copilot specializing in oncology and EGFR-targeted lung cancer therapy.
 Your task is to synthesize verified, multi-hop medical answers based EXCLUSIVELY on the provided dual-indexed evidence (Neo4j Knowledge Graph facts and PubMed / ClinicalTrials text chunks).
 
 STRICT GUIDELINES:
@@ -13,7 +13,7 @@ STRICT GUIDELINES:
 3. DEMOGRAPHIC ELIGIBILITY:
    - When discussing age criteria, state the exact minimum and maximum age bounds (e.g., "Patients aged >= 18").
 4. MECHANISM OF ACTION & SAFETY:
-   - When discussing ion channels or genes (e.g. KCNH2/hERG, SCN5A), explain the pharmacology and link any reported safety events (e.g., QT prolongation, Torsades de Pointes).
+   - When discussing genes such as EGFR, explain only the mechanisms and safety findings supported by the evidence. Do not infer variant-specific sensitivity or resistance from a gene-level drug link.
 5. NO HALLUCINATIONS:
    - If evidence for a specific question is absent, explicitly state that it is not documented in the current knowledge graph or retrieved abstracts.
 """
@@ -101,7 +101,7 @@ def create_user_prompt(query: str, evidence: HybridEvidence) -> str:
         "Structure your response with clear headings: \n"
         "1. Executive Summary\n"
         "2. Clinical Trials & Comparative Arms Analysis (with NCT citations)\n"
-        "3. Pharmacology & Target Gene Mechanism (e.g., KCNH2/hERG)\n"
+        "3. Pharmacology & Target Gene Mechanism (e.g., EGFR)\n"
         "4. Safety Profile & Adverse Events (with PMID citations)\n"
         "5. Patient Eligibility & Demographic Considerations"
     )

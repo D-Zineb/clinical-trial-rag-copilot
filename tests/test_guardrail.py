@@ -10,16 +10,16 @@ def guardrail():
 def test_guardrail_extracts_entities(guardrail):
     """Verify entity parser correctly extracts NCTs, PMIDs, drugs, and genes from text."""
     sample_text = (
-        "In trial NCT05543278, patients were administered Amiodarone to reduce postoperative arrhythmias. "
-        "Amiodarone is known to inhibit KCNH2 potassium channels, as noted in PMID 40159403."
+        "In trial NCT05543278, patients were administered Osimertinib to reduce postoperative arrhythmias. "
+        "Osimertinib is known to inhibit EGFR potassium channels, as noted in PMID 40159403."
     )
 
     drugs, genes, ncts, pmids = guardrail.extract_claimed_entities(sample_text)
 
     assert "NCT05543278" in ncts
     assert "40159403" in pmids
-    assert "Amiodarone" in drugs
-    assert "KCNH2" in genes
+    assert "Osimertinib" in drugs
+    assert "EGFR" in genes
 
 
 def test_guardrail_resilient_handling(guardrail):

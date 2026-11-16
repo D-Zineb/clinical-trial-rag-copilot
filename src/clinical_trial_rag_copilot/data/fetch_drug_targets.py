@@ -6,7 +6,7 @@ import requests
 
 DATA_DIR = Path(__file__).resolve().parent / "output"
 
-TRIALS_FILE = DATA_DIR / "cardiology_trials.json"
+TRIALS_FILE = DATA_DIR / "oncology_trials.json"
 OUTPUT_FILE = DATA_DIR / "drug_targets_pharmacology.json"
 
 # Open pharmacology API (MyChem.info provides harmonized ChEMBL, DrugBank, and DrugCentral data)
@@ -15,7 +15,7 @@ MYCHEM_API_URL = "https://mychem.info/v1/query"
 
 def extract_unique_drugs_from_trials() -> List[str]:
     """Extract distinct drug names from our clinical trials dataset."""
-    trials = load_dataset("cardiology_trials.json")
+    trials = load_dataset("oncology_trials.json")
 
     drugs: Set[str] = set()
     for t in trials:
@@ -25,7 +25,7 @@ def extract_unique_drugs_from_trials() -> List[str]:
                 name = interv.get("name", "").strip()
                 # Clean up simple noisy strings (e.g., doses like "50mg", "Placebo", etc.)
                 if name and not name.lower().startswith("placebo") and len(name) > 2:
-                    # Clean up strings like "Amiodarone 200 mg" -> "Amiodarone"
+                    # Clean up strings like "Osimertinib 200 mg" -> "Osimertinib"
                     clean_name = name.split("(")[0].split(",")[0].strip()
                     drugs.add(clean_name)
 
