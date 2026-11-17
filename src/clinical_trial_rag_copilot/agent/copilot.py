@@ -3,7 +3,10 @@ from pydantic import BaseModel, Field
 
 from clinical_trial_rag_copilot.retrieval.hybrid_search import HybridEvidence, HybridRetriever
 from clinical_trial_rag_copilot.agent.llm_client import BaseLLMClient, get_llm_client
-from clinical_trial_rag_copilot.agent.prompt_templates import SYSTEM_PROMPT, create_user_prompt, format_evidence_context
+from clinical_trial_rag_copilot.agent.prompt_templates import (
+    SYSTEM_PROMPT, EMPTY_EVIDENCE_ANSWER, create_user_prompt,
+    format_evidence_context, has_source_evidence,
+)
 from clinical_trial_rag_copilot.agent.verifier import GraphFactualityGuardrail, VerificationReport
 from clinical_trial_rag_copilot.observability.tracer import PipelineTracer, traceable
 from clinical_trial_rag_copilot.utils.logger import get_logger
@@ -63,13 +66,22 @@ class ClinicalGraphRAGCopilot:
             span.set_outputs({"prompt_length_chars": len(user_prompt)})
 
         # Step 3: LLM Generation
+        has_evidence = has_source_evidence(evidence)
         with tracer.start_span("llm_synthesis", {"provider": type(self.llm).__name__}) as span:
-            raw_answer = self.llm.generate(SYSTEM_PROMPT, user_prompt)
-            span.set_outputs({"raw_answer_length": len(raw_answer)})
+            raw_answer = (
+                self.llm.generate(SYSTEM_PROMPT, user_prompt)
+                if has_evidence else EMPTY_EVIDENCE_ANSWER
+            )
+            span.set_outputs({"raw_answer_length": len(raw_answer), "skipped": not has_evidence})
 
         # Step 4: Self-RAG Factuality Guardrail
         with tracer.start_span("self_rag_guardrail", {"answer_snippet": raw_answer[:200]}) as span:
-            report = self.guardrail.verify(raw_answer)
+            report = self.guardrail.verify(raw_answer) if has_evidence else VerificationReport(
+                is_valid=False,
+                status="INSUFFICIENT_EVIDENCE",
+                guardrail_banner=("> No source evidence was available; answer generation and "
+                                  "graph verification were skipped."),
+            )
             span.set_outputs({
                 "status": report.status,
                 "verified_trials": report.verified_trials,
