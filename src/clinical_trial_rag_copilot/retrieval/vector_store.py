@@ -364,31 +364,23 @@ def get_vector_store():
     if backend == "pinecone":
         return PineconeVectorStore()
     if backend == "local":
-        return LocalVectorStore()
+        return LocalVectorStore(Path(os.getenv('LOCAL_VECTOR_STORE_DIR') or DEFAULT_STORE_DIR))
     raise ValueError(f"Unknown VECTOR_STORE_PROVIDER: {backend}")
 
 
 def index_all_data():
-    """Build and persist the complete vector index from trials and literature datasets."""
-    logger.info("Starting vector ingestion; loading source datasets from %s", DATA_DIR)
-    trials = load_dataset("oncology_trials.json")
-    papers = load_dataset("pubmed_oncology_literature.json")
-
-    chunks = build_all_chunks(trials, papers)
-    logger.info("Prepared %d chunks from %d trials and %d papers.", len(chunks), len(trials), len(papers))
-    store = get_vector_store()
-    logger.info("Selected vector backend: %s", type(store).__name__)
-    store.build_index(chunks)
-    return store
+    """Build a fresh index with persistent embedding caching and verification."""
+    from clinical_trial_rag_copilot.retrieval.indexing import rebuild_index
+    return rebuild_index()
 
 
 if __name__ == "__main__":
-    store = index_all_data()
-
-    # Demonstration search
-    test_query = "Osimertinib postoperative non-small cell lung cancer EGFR"
-    logger.info("Test search query: '%s'", test_query)
-    hits = store.search(test_query, top_k=3)
-    for h in hits:
-        snippet = h.text.replace("\n", " ")[:140]
-        logger.info("[%s] Score=%.4f | Doc=%s | Snippet: %s...", h.chunk_type, h.score, h.doc_id, snippet)
+    import argparse
+    parser = argparse.ArgumentParser(description='Build and verify a fresh vector index; existing indexes are preserved.')
+    parser.add_argument('--verify-run', type=Path, help='Verify an existing run without re-embedding or uploading')
+    args = parser.parse_args()
+    if args.verify_run:
+        from clinical_trial_rag_copilot.retrieval.indexing import verify_run
+        verify_run(args.verify_run)
+    else:
+        index_all_data()

@@ -93,3 +93,27 @@ def test_literature_sibling_lookup(store):
     store.index.fetch.return_value = SimpleNamespace(vectors={})
     assert store.get_chunks_by_doc_id("12345") == []
     store.index.fetch.assert_called_once_with(ids=["PMID_12345"], namespace=store.namespace)
+
+
+def test_parent_child_metadata_and_full_text_round_trip(store):
+    from clinical_trial_rag_copilot.retrieval.chunking import create_trial_chunks
+    chunks = create_trial_chunks({
+        'nct_id': 'NCT00000001', 'brief_title': 'Parent test',
+        'exclusion_criteria': '\n'.join(
+            f'{i}. Restriction with exception: ' + 'qualified source text ' * 30
+            for i in range(1, 5)),
+    })
+    store.build_index(chunks)
+    records = [r for call in store.index.upsert.call_args_list
+               for r in call.kwargs['vectors']]
+    vectors = {r['id']: SimpleNamespace(metadata=r['metadata'], score=0.9) for r in records}
+    child = next(c for c in chunks if c.metadata.get('parent_chunk_id'))
+    store.index.query.return_value = SimpleNamespace(matches=[vectors[child.chunk_id]])
+    hit = store.search('restriction')[0]
+    assert hit.metadata['parent_chunk_id'] == child.metadata['parent_chunk_id']
+    store.index.list.return_value = [list(vectors)]
+    store.index.fetch.return_value = SimpleNamespace(vectors=vectors)
+    fetched = store.get_chunks_by_doc_id(hit.doc_id)
+    parent = next(c for c in fetched if c['chunk_id'] == hit.metadata['parent_chunk_id'])
+    original = next(c for c in chunks if c.chunk_id == parent['chunk_id'])
+    assert parent['text'] == original.text

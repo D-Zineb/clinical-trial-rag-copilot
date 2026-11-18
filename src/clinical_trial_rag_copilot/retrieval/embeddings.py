@@ -94,11 +94,11 @@ class FastEmbedEmbeddingProvider(BaseEmbeddingProvider):
         model_name = os.getenv("FASTEMBED_MODEL", "BAAI/bge-small-en-v1.5")
         logger.info("Loading FastEmbed model %s (first use may download model files)...", model_name)
         from fastembed import TextEmbedding
-        self.model = TextEmbedding(model_name=model_name)
+        self.model = TextEmbedding(model_name=model_name, threads=int(os.getenv('FASTEMBED_THREADS', '2')))
         logger.info("FastEmbed model ready.")
 
     def embed_documents(self, texts):
-        return [v.tolist() for v in self.model.passage_embed(texts)]
+        return [v.tolist() for v in self.model.passage_embed(texts, batch_size=4)]
 
     def embed_query(self, text):
         return next(iter(self.model.query_embed(text))).tolist()

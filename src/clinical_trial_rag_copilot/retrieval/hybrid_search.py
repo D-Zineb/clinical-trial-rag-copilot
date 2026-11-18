@@ -388,18 +388,62 @@ class HybridRetriever:
             for chunk in fetched_chunks[doc]:
                 vector_hits.append(SearchResult(**chunk, score=scores.get(doc, 0.0)))
 
-        # Sibling Chunk Expansion: Pull companion chunks (Overview, Inclusion, Exclusion) for top winning trials
+        # One hit per section: many children from one section must not consume
+        # the context limit. Preserve the winning child's score and provenance.
+        selected_hits = []
+        seen_sections = set()
+        order_index = {doc: index for index, doc in enumerate(ordered)}
+        for hit in sorted(vector_hits, key=lambda hit: (order_index[hit.doc_id], -hit.score)):
+            section_key = (hit.doc_id, hit.metadata.get('parent_chunk_id') or hit.chunk_id)
+            if section_key in seen_sections:
+                continue
+            seen_sections.add(section_key)
+            selected_hits.append(hit)
+            if len(selected_hits) == top_k:
+                break
+
+        def fetch_sections(doc):
+            if doc not in fetched_chunks:
+                try:
+                    fetched_chunks[doc] = [c for c in self.vector_store.get_chunks_by_doc_id(doc)
+                                           if c.get('doc_id') == doc]
+                except Exception as exc:
+                    logger.warning('Section fetch failed for %s: %s', doc, exc)
+                    fetched_chunks[doc] = []
+                    warnings.append(f'Source section fetch failed for {doc}; context may be incomplete.')
+            return fetched_chunks[doc]
+
+        # Keep broad dossiers for the first three trials, without repeating all
+        # child text alongside its full parent.
         sibling_chunks: Dict[str, List[Dict[str, Any]]] = {}
         for nct in sorted_ncts[:min(3, top_k)]:
-            if nct not in fetched_chunks:
-                fetched_chunks[nct] = self.vector_store.get_chunks_by_doc_id(nct)
-            sibling_chunks[nct] = fetched_chunks[nct]
+            sibling_chunks[nct] = [c for c in fetch_sections(nct)
+                                   if not c.get('metadata', {}).get('parent_chunk_id')]
+
+        # Every selected child gets its full parent, even beyond the dossier
+        # limit. Never silently substitute a different trial or section.
+        for hit in selected_hits:
+            parent_id = hit.metadata.get('parent_chunk_id')
+            if not parent_id:
+                continue
+            parent = next((c for c in fetch_sections(hit.doc_id)
+                           if c.get('chunk_id') == parent_id
+                           and c.get('chunk_type') == hit.chunk_type
+                           and c.get('text', '').strip()
+                           and not c.get('metadata', {}).get('parent_chunk_id')), None)
+            if parent is None:
+                warnings.append(f'Full parent section {parent_id} unavailable for {hit.doc_id}; '
+                                'retrieved child text may omit qualifications or exceptions.')
+                continue
+            sections = sibling_chunks.setdefault(hit.doc_id, [])
+            if not any(c.get('chunk_id') == parent_id for c in sections):
+                sections.append(parent)
 
         return HybridEvidence(
             query=query,
             extracted_entities=entities,
             graph_evidence=sorted([item for item in graph_items if str(item.get("nct_id") or item.get("pmid")) in winners], key=lambda item: ordered.index(str(item.get("nct_id") or item.get("pmid")))),
-            vector_evidence=sorted(vector_hits, key=lambda hit: (ordered.index(hit.doc_id), -hit.score))[:top_k],
+            vector_evidence=selected_hits,
             fused_ncts=sorted_ncts[:top_k],
             fused_pmids=sorted_pmids[:top_k],
             sibling_chunks=sibling_chunks,

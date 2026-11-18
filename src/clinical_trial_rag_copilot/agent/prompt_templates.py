@@ -112,12 +112,19 @@ def format_evidence_context(evidence: HybridEvidence) -> str:
                 if not txt:
                     continue
                 sections.append(f"[{ctype}]\n{txt}\n")
-    else:
-        # Fallback to individual vector hits
+    # Include hits not covered by a fetched section, even when other trials
+    # have dossiers. A missing parent must not silently hide the available hit.
+    covered = {(doc, c.get('chunk_id')) for doc, chunks in evidence.sibling_chunks.items()
+               for c in chunks if c.get('chunk_id') and c.get('text', '').strip()}
+    trial_hits = [v for v in evidence.vector_evidence
+                  if v.chunk_type != "LITERATURE_ABSTRACT" and v.text.strip()
+                  and (v.doc_id, v.chunk_id) not in covered
+                  and (v.doc_id, v.metadata.get('parent_chunk_id')) not in covered]
+    if trial_hits or not any(c.get('text', '').strip()
+                            for chunks in evidence.sibling_chunks.values() for c in chunks):
         sections.append("\n### 2. CLINICAL TRIAL TEXT EVIDENCE (VECTOR CHUNKS)")
-        trial_hits = [v for v in evidence.vector_evidence if v.chunk_type != "LITERATURE_ABSTRACT" and v.text.strip()]
         if trial_hits:
-            for idx, v in enumerate(trial_hits[:4], 1):
+            for idx, v in enumerate(trial_hits, 1):
                 sections.append(
                     f"[{idx}] Document: {v.doc_id} ({v.chunk_type}) - Similarity Score: {v.score:.4f}\n"
                     f"{v.text.strip()}\n"
